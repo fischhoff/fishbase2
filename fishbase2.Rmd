@@ -1,0 +1,2758 @@
+---
+title: "fishbase2"
+author: "Han lab"
+date: "8/18/2020"
+output: github_document
+---
+
+#####install packages
+```{r packages, include = FALSE}
+print(Sys.time())
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)    
+  }
+  library(x, character.only = TRUE)
+}
+neededPackages <- c( "ggplot2", "rentrez", "plyr", "seqinr", "foreach","broom", "remotes", "Biostrings", "stringr", "phylotools", "data.table", "rfishbase", "Hmisc", "caret", "tidyr", "ggforce", "broom", "gbm", "caret", "Matrix", "pdp", "caTools", "ROCR", "dplyr", "dismo", "doSNOW", "data.table", "rsample", "tidyverse", "sf", "raster", "mapview", "rnaturalearth", "fasterize", "tidyr", "patchwork", "gtable", "magrittr",  "fulltext", "corrplot")
+for (package in neededPackages){pkgTest(package)}
+```
+
+```{r}
+testing_var = 1#0: testing out, not doing full grid search
+nruns = 5
+date = "20200818"
+time = "1833"
+output_name = paste("vert", date, time, sep = "_")
+save(output_name, file = "output_name.Rdata")
+print(Sys.time())
+id_field = "Species"
+rm_list = c("nchar", "Order", "nchar", "haddock_score_sd")
+if (testing_var == 1){
+  eta = c(0.0001, 0.001, 0.01, 0.1)
+  max_depth = c(2,3,4)
+  n.minobsinnode = c(2,5)
+  nrounds = 100000
+} else {
+  eta = c(0.0001, 0.001)
+  max_depth = c(2)
+  n.minobsinnode = c(2)
+  nrounds = 100000
+}
+do_haddock_median = 0
+
+do_haddock_infected = 0#make 1 to do analysis with over/under infectable species w/ highest haddock score
+
+do_score = 0#1 to do regression analysis with haddock score
+
+get_fishbase = 0
+
+make_v = 0 #whether to remake V, which takes a little time to get all the data from fishbase
+
+do_mammal = 0#whether to do separate analysis for mammals (excluding other verts)
+```
+
+##cores
+```{r, include = FALSE}
+cores = 4
+cl <- makeCluster(cores, "SOCK", timeout = 60)  
+  # stopCluster(cl)
+registerDoSNOW(cl)
+  
+```
+
+##set up function gridSearch.R
+```{r, include = FALSE}
+source("gridSearch.R")
+```
+
+##try out grid search using Pima dataset
+##https://www.kaggle.com/kumargh/pimaindiansdiabetescsv?select=pima-indians-diabetes.csv
+##label = "X1"
+```{r}
+DF <- read.csv("../../functions/pima-indians-diabetes.csv")
+DF$id_field_vals = seq(1,dim(DF)[1])
+load("bootstrapGBM.Rdata")
+  nrounds_test = 2000
+  min_trees = 0
+  k_split = 0.8
+  label = "X1"
+vars_pred = setdiff(names(DF), label)
+OUT <-  bootstrapGBM(DF, label = "X1", vars_pred, k_split, distribution = "bernoulli", eta = 0.5, max_depth = 1, nrounds = nrounds_test, nruns =2, bootstrap = "observed", method = "cv", cv.folds = 5,
+                         n.minobsinnode=2,file_label = "test", id_field= "id_field_vals")
+
+temp = OUT[[3]]
+
+```
+
+```{r bootstrapGBM}
+source("bootstrapGBM.R")
+```
+
+##function to make binary fields into factor
+```{r}
+binary_factor <- function(DF){
+  T = DF
+  names = names(T)
+  binary = NULL
+  for (a in 1:length(names)){
+    vals = unique(T[,names[a]])
+    vals = vals[!is.na(vals)]
+    if (length(which(vals==0)) + length(which(vals == -1)) == 2){
+      T[,names[a]]=factor(T[,names[a]])
+      binary = c(binary, names[a])
+      #change to 1 and 0
+    }
+  }
+  T
+}
+save(binary_factor, file = "binary_factor.Rdata")
+```
+
+
+##function to take the same across rows of categorical variables that have been 1/0 encoded, where a species may have 1 for more than one condition of a variable
+```{r sum_or_mean, include = FALSE}
+source("R_function_sum_or_mean.R")
+```
+
+##function to replace NAs with real values for binary fields
+```{r keep_real_binary, include = FALSE}
+source("R_function_keep_real_binary.R")
+```
+
+```{r non_biological_list, include = FALSE}
+source("non_biological.R")
+```
+
+
+```{r process_table, include = FALSE}
+source("R_function_process_table.R")
+```
+
+
+##settings
+```{r cutoff, include = FALSE}
+cutoff = 0.15#cutoff of coverage required for inclusion
+```
+
+
+##look at docs about tables available from fishbase
+```{r tables, include = FALSE}
+if (make_v == 1){
+  tables <- docs()
+  tables
+}
+```
+
+
+##read in data and fix species names
+```{r haddock_data, include = FALSE}
+if (make_v == 1){
+  DF = read.csv("docking-results.csv")
+  
+  DF$species = str_replace(DF$species, pattern = "_", replacement = " ")
+  
+  DF$species=capitalize(DF$species)
+  
+  A = read.csv("ACE2_sequences_fixed.csv")
+  A_fish = subset(A, is_fish == 1)
+  
+  names(DF)[names(DF)=="species"]="Species"
+  
+  DF = DF[, c("Species", "haddock_score_mean", "haddock_score_sd")]
+  A_fish = A_fish[,c("Species", "Order", "Class")]
+  
+  DF = merge(DF, A_fish)
+  
+  #https://cran.r-project.org/web/packages/rfishbase/vignettes/tutorial.html
+  fish <- validate_names(c(DF$Species))
+  
+  DF$Species_ACE2 = DF$Species
+  DF$Species = fish
+  save(DF, file = "DF.Rdata")
+}
+```
+
+##distribution
+##currently this is ~ FAO areas table (minus "note" field) e.g. http://www.fishbase.us/Country/FaoAreaList.php?ID=5537
+##each species may have multiple bounding boxes
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  species = DF$Species
+  out = NULL
+  for (a in 1:length(species)){
+    tmp = data.frame(distribution(species[a]))
+    print(dim(tmp)[1])
+    
+    ind_species =which(names(tmp) == "Species")
+    inds_new = setdiff(seq(1,dim(tmp)[2]), ind_species)
+    names(tmp)[inds_new]= paste0(names(tmp)[inds_new], 
+                                         "_distribution")
+    tmp = merge(DF[a,], tmp)
+    out = rbind(out, tmp)
+  }
+  
+  DF_distribution = out
+  save(DF_distribution, file = "DF_distribution_simple.Rdata")
+  load("DF_distribution_simple.Rdata")
+  
+  DF = DF_distribution
+  str_which(names(DF), "Sub")#doesn't include subarea
+  test = subset(DF_distribution, Species == "Acanthochromis polyacanthus")
+  test$FAO_distribution
+  
+  FAO <- st_read("FAO_AREAS/Marine/FAO_AREAS.shp")
+  FAO_test= subset(FAO, NAME_EN == "Indian Ocean, Eastern")
+  plot(FAO_test)
+  
+  keep = c("NorthernLatitude_distribution" ,  "NorthernLatitudeNS_distribution" ,"SouthernLatitude_distribution"  ,
+   "SouthernLatitudeNS_distribution", "WesternLongitude_distribution" ,  "WesternLongitudeEW_distribution"
+  , "EasternLongitude_distribution" ,  "EasternLongitudeEW_distribution")
+  keep = c(keep, "Species", "FAO_distribution")
+  test = test[, keep]
+#looked at map and figured out that bounding box encompasses FAO area
+}
+```
+
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF_distribution_simple.Rdata")
+  DATA <- DF_distribution
+}
+```
+
+Read in the FAO areas (from http://www.fao.org/geonetwork/srv/en/main.home?uuid=ac02a460-da52-11dc-9d70-0017f293bd28 as described by http://www.fishbase.us/manual/English/FishbaseThe_FAOAREAS_Table.htm). It looks like our data contain both the inland and marine FAOs, so I read in both and combined them according to a single column of FAO code.
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  FAO <- st_read("FAO_AREAS/Marine/FAO_AREAS.shp")
+  FAO$area <- st_area(FAO)
+  
+  FAO=data.frame(F_CODE = FAO$F_CODE,
+                 area = FAO$area)
+  
+  test = FAO[1,]
+  
+  arctic_tmp = subset(DATA, AreaCode_distribution == test$F_CODE)#this checks out
+  print(arctic_tmp$FAO_distribution)
+  
+  names(DATA)[names(DATA)=="AreaCode_distribution"]="F_CODE"
+  DATA$F_CODE = as.character(DATA$F_CODE)
+  
+  #inland waters
+  IFAO <- st_read("FAO_AREAS/Inland/FAO_AREAS_INLAND.shp")
+  IFAO$F_AREA_INL <- gsub("0", "", IFAO$F_AREA_INL)
+  names(IFAO)[names(IFAO)=="F_AREA_INL"]="F_CODE"
+  IFAO$area = st_area(IFAO)
+  
+  IFAO = data.frame(F_CODE = IFAO$F_CODE,
+                    area = IFAO$area)
+  
+  FAO = rbind(FAO, IFAO)
+  
+  species = unique(DF$Species)
+  a = 1
+  area = rep(NA, length(species))
+  for (a in 1:length(species)){
+    DATA_tmp = subset(DATA, Species == species[a])
+    FAO_tmp = subset(FAO, F_CODE %in% as.character(DATA_tmp$F_CODE))
+    area[a] = sum(FAO_tmp$area, na.rm = TRUE)
+  }
+  
+  area = area * 0.000001#convert to sq km
+  dist = data.frame(Species = species,
+                    range_area = area)
+  save(dist, file = "dist.Rdata")
+  #convert to km2
+  load("dist.Rdata")
+}
+```
+
+##check out some tables in fishbase
+##brains: one entry for each individual fish: BrainWeight, BodyWeight
+##https://www.fishbase.in/manual/fishbasethe_brains_table.htm
+```{r brains, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  load("dist.Rdata")
+  T = brains()
+  load("process_table.Rdata")
+  load("non_biological.Rdata")
+  part = "part"
+  brains_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = "brains", part = "part")
+  dim(brains_out)[1]==dim(DF)[1]
+  
+  brains_out = merge(brains_out, dist)
+  save(brains_out,file =  "brains_out.Rdata")
+  # T$brain_body_weight = T$BrainWeight/T$BodyWeight#don't need to do this because it already has EncCoeff
+# source("brains_scratch.R")=
+}
+```
+
+##country: multiple rows per species; for example:
+```{r country, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  test = data.frame(country(DF$Species[1]))  
+  head(test)
+}
+```
+## countrysub -- multiple rows per species
+##https://www.fishbase.de/manual/english/FishBaseThe_Countries_Table.htm
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  test = data.frame(countrysub(DF$Species[1]))  
+  head(test)
+}
+```
+
+
+##get ecology data
+##http://fishbase.us/manual/English/FishbaseThe_ECOLOGY_Table.htm
+```{r ecology, include = FALSE}
+if (make_v == 1){
+  T<- ecology()
+  
+  load("DF.Rdata")
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  
+  # save(T, file="T_ecology.Rdata")
+  # load("T_ecology.Rdata")
+  load("non_biological.Rdata")
+  # source("ecology_scratch.R")
+  #part = part to just do the haddock scored species
+  ecology = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = "ecology", part = "part")
+  
+  str_which(names(ecology),"Species")
+  
+  dim(ecology)[1]==dim(DF)[1]#check this is true
+  
+  save(ecology, file = "ecology.Rdata")
+  
+  load("brains_out.Rdata")
+  out = brains_out
+  dim(ecology)[1]==dim(brains_out)[1]
+  length(str_which(names(ecology),"Species"))
+  length(str_which(names(brains_out),"Species"))
+  
+  table_out = ecology
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  
+  # out = merge(ecology, brains_out) 
+  save(out, file = "out.Rdata")
+  
+  length(str_which(names(out),"Species"))
+}
+```
+
+##distribution
+##currently this is ~ FAO areas table (minus "note" field) e.g. http://www.fishbase.us/Country/FaoAreaList.php?ID=5537
+##each species may have multiple bounding boxes
+```{r distribution, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "distribution"
+  T<-distribution()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  T_n <- T %>%  select_if(is.numeric)
+  summary(T_n)
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##ecosystem -- couldn't find description of this online
+##multiple rows per species, one for each ecosystem
+```{r ecosystem, include = FALSE}
+if (make_v == 1){
+  load("ecology.Rdata")
+  DF = ecology
+  
+  species = DF$Species
+  out = NULL
+  
+  for (a in 1:length(species)){
+    tmp = data.frame(ecosystem(species[a]))
+    print(dim(tmp)[1])
+    out = rbind(out, tmp)
+  }
+  
+  summary(out)
+  head(tmp)
+}
+```
+
+##estimate: a table of estimates from some models on trophic levels
+##http://www.fishbase.us/manual/English/FishbaseThe_FOOD_ITEMS_table.htm
+```{r estimate, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "estimate"
+  T<- estimate()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  # source("ecology_scratch.R")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  
+  # out = merge(table_out, out) 
+  save(out, file = "out.Rdata")
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+  length(str_which(names(out),"Species"))
+  
+  
+  summary(out)
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+}  
+```
+
+##faoareas, seems to be redundant to countrysub? 
+```{r, include = FALSE}
+if (make_v == 1){
+  test = faoareas(species_list = species[a])
+  test
+
+}
+```
+
+##fecundity
+##sometimes multiple rows per species. could not 
+##could not locate doc table about fecundity. spawning table seems to be something different (different fields): https://www.fishbase.in/manual/fishbasethe_spawning_table.htm
+```{r fecundity, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "fecundity"
+  T<- fecundity()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  # source("ecology_scratch.R")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  
+  # out = merge(table_out, out) 
+  length(str_which(names(out),"Species"))
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##fooditems -- including this one
+##http://www.fishbase.org/manual/english/fishbasethe_food_items_table.htm
+##multiple rows per species, for different food types, life stages of predator, locality, etc. 
+```{r fooditems, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "fooditems"
+  T<- fooditems()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  # source("ecology_scratch.R")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+  
+  load("out_fooditems.Rdata")
+}
+```
+
+##genetic -- don't think we want to use this, but including just to see what it shows
+```{r, include = FALSE}
+# load("DF_fooditems.Rdata")
+# DF= DF_estimate
+# 
+# test = data.frame(genetics(DF$Species[1]))
+# names(test)
+
+```
+
+
+##introductions -- species introductions data. for now making one new feature: the number of records about introductions; it seems that each row is a different place
+##https://www.fishbase.in/manual/fishbasethe_introduction_table.htm
+```{r introdoctions, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "introductions"
+  T<- introductions()
+  
+  # T$Estabwild = tolower(T$Estabwild)#added tolower to function
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+  
+  
+  # #simplify into two categories: yes or no
+  # no = c("not established", "probably not established", "probably no", "probably no", "no")
+  # yes = c("established", "probably established", "yes", "probably yes")
+  # 
+  # Estabwild_binary=rep(NA, dim(F_f1)[1])
+  # 
+  # inds = which(F_f1$Estabwild %in% no)
+  # Estabwild_binary[inds] = 0
+  # 
+  # inds = which(F_f1$Estabwild %in% yes)
+  # Estabwild_binary[inds] = 1
+  # 
+  # F_f1$Estabwild_binary = Estabwild_binary
+  
+  # F_f1$Estabwild_binary = factor(F_f1$Estabwild_binary)
+  
+  # F_f1 = F_f1[, c("Species", "Estabwild_binary")]
+  # # F_f1 = subset(F_f1, Species == "Cyprinus carpio")
+  # F_sum <- F_f1 %>% 
+  #   drop_na(Estabwild_binary) %>% 
+  #   # na.omit() %>%#didn't work 
+  # 
+  #   group_by(Species) %>%
+  #   summarize(Estabwild_binary_mean = mean(Estabwild_binary))
+}
+```
+
+##larvae
+##https://www.fishbase.in/manual/fishbasethe_larvae_table.htm
+##2 out of the 74 species have multiple records w/ different values. excluding for now. 
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF_intro.Rdata")
+  DF= DF_intro
+  
+  species = DF$Species
+  for (a in 1:length(species)){
+    tmp = data.frame(larvae(species_list = DF$Species[a]))
+    # print(a)
+    print(dim(tmp)[1])
+  }
+  #see what the other fields are
+  
+  names(tmp)
+  #look at one that has multiple rows
+  a = 15
+  tmp = data.frame(larvae(species_list = DF$Species[a]))
+  
+  head(tmp)
+}
+```
+
+##length_freq; multiple records for some species; excluding for now; could not find metadata
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF_intro.Rdata")
+  DF= DF_intro
+  a = 15
+  species = DF$Species
+  for (a in 1:length(species)){
+    tmp = data.frame(length_freq(species_list = DF$Species[a]))
+    # print(a)
+    print(dim(tmp)[1])
+  }
+  #see what the other fields are
+  names(tmp)
+  head(tmp)
+}
+```
+
+
+##length_length: conversion of length types
+
+##length_weight: The LENGTH-WEIGHT table presents the a and b values of over 5,000 length-weight relationships of the form W = a x Lb, pertaining to about over 2,000 fish species.
+##multiple records for some species.
+##seems like this may only be useful in combination with length_length
+##https://www.fishbase.de/manual/FishbaseThe_LENGTH_WEIGHT_Table.htm
+```{r, include = FALSE}
+#"Length1"
+if (make_v == 1){
+  T = length_weight()
+  
+  length(which(is.na(T$Type)))#mostly this is empty
+  
+  table(T$LmaxCompare)
+  
+  table(T$Type)
+  
+  #see what's in this table
+  T = length_length()
+  table(T$Length1)#different types of length measures
+  
+  table(T$Length2)#different types of length measures
+  #can't tell which length type is being measured
+  
+  table(T$Type)#mostly this is empty
+  
+  rm(table_out)
+  T = length_weight()
+  
+  #can't take out these rows because it will remove species we need
+  # ok = NULL
+  # ok = c(ok, which(is.na(T$Type)))#assume if it's empty it's standard
+  # ok = c(ok, which(T$Type == "SL"))
+  # T = T[ok,]
+  
+  ok = NULL
+  ok = c(ok, which(is.na(T$Type)))#assume if it's empty it's standard
+  ok = c(ok, which(T$Type == "SL"))
+  T$LengthMax[-ok]=NA
+  T$LengthMin[-ok]=NA
+  
+  table_name = "length_weight"
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##maturity
+##multiple records for some species, would need to take averages if we wanted to use. there are multiple measures of maturity to choose from.
+##https://www.fishbase.in/manual/fishbasethe_maturity_table.htm
+```{r maturity, include = FALSE}
+if (make_v == 1){
+  load("DF_intro.Rdata")
+  DF= DF_intro
+  
+  F <- maturity()
+  
+  F[sapply(F, is.character)] <- lapply(F[sapply(F, is.character)], 
+                                         as.factor)
+  F_f <- F %>%  select_if(is.factor) 
+  
+  names(F_f)#none relevant
+  
+  F_n <- F %>%  select_if(is.numeric) 
+  
+  names(F_n)
+  species = DF$Species
+  for (a in 1:length(species)){
+    tmp = data.frame(maturity(species_list = DF$Species[a]))
+    # print(a)
+    print(dim(tmp)[1])
+  }
+  #see what the other fields are
+  names(tmp)
+  a = 2
+    tmp = data.frame(maturity(species_list = DF$Species[a]))
+    head(tmp)
+}
+```
+
+##morphology
+##https://www.fishbase.in/manual/fishbasethe_morphology_table.htm
+##there are multiple records for some species. 
+```{r morphology, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "morphology"
+  T<-morphology()
+  
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}  
+```
+
+
+##morphometrics
+##there are multiple records for some species; to include we would need to take averages
+##exclude for now because couldn't find documentation
+```{r, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "morphometrics"
+  T<-morphometrics()
+  names(T)
+}
+```
+
+##oxygen
+##https://www.fishbase.in/manual/fishbasethe_oxygen_table.htm
+##there are multiple records for some species (e.g. for different sexes); to include we would need to take averages
+##include along with potentially influencing variables -- e.g. salinity, temp, swimming speed, etc. 
+```{r oxygen, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "oxygen"
+  T<-oxygen()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+  
+  load("out_oxygen.Rdata")
+}
+```
+
+##popchar: Table of maximum length (Lmax), weight (Wmax) and age (tmax)
+##https://www.fishbase.in/manual/fishbasethe_popchar_table.htm
+##there are multiple records for some species; to include we would need to take averages
+##
+```{r popchar, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "popchar"
+  T<-popchar()
+  unique(T$Type)#can't tell what this means
+  keep = setdiff(names(T), "Type")
+  T = T[,keep]
+  unique(T$TypeWeight)
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##popgrowth
+##https://www.fishbase.in/manual/fishbasethe_popgrowth_table.htm
+##multiple records for some species, e.g. for different sexes; 
+```{r popgrowth, include = FALSE}
+
+if (make_v == 1){
+  rm(table_out)
+  table_name = "popgrowth"
+  T<-popgrowth()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+
+```
+
+##popqb
+##https://www.fishbase.se/manual/english/fishbasethe_popqb_table.htm
+##population-based estimates of food consumption (i.e., estimates that account for the age structure of populations)
+##multiple responses for some species. here there are two measures, popqb and maintenance qb. 
+```{r popqb, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "popqb"
+  T<-popqb()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##predators
+##https://www.fishbase.se/manual/English/fishbasethe_predators_table.htm
+```{r predators, include = FALSE}
+if (make_v == 1){
+  load("DF.Rdata")
+  species = DF$Species
+  DF$predator_mammals = NA
+  for (a in 1:length(species)){
+    tmp = data.frame(predators(species_list = DF$Species[a]))
+    tmp = subset(tmp, !is.na(PredatorI))
+    if (dim(tmp)[1]>0){
+        DF$predator_count[a] = dim(tmp)[1]
+        tmp_mammal = subset(tmp, PredatorI == "mammals")
+        DF$predator_mammals[a]= dim(tmp_mammal)[1]    
+    }
+    # out = rbind(out, tmp)
+  }
+  # DF = out
+  save(DF, file = "DF.Rdata")
+  
+  rm(table_out)
+  table_name = "predators"
+  T<-predators()
+  
+  #from this one removing PreyStage
+  # ind_rm = which(names(T)=="PreyStage")
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  DF = DF[,c("Species", "predator_mammals")]
+  out = merge(out, DF, by = "Species")
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##ration
+##�ration� (Rd) pertains to an estimate of daily food consumption by fish of a specific size
+##https://www.fishbase.in/manual/fishbasethe_ration_table.htm
+##multiple rows for some species
+```{r ration, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "ration"
+  T<-ration()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  T<-ration()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+
+```
+
+##reproduction
+##https://www.fishbase.in/manual/fishbasethe_reproduction_table.htm
+##only one row per species for these HADDOCK species; adding these fields
+```{r reporoduction, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "reproduction"
+  T<-reproduction()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##spawning
+##https://www.fishbase.in/manual/fishbasethe_spawning_table.htm
+##multiple rows per species, for different localities
+```{r spawning, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "spawning"
+  T<-spawning()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  # T<-ration()
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+##speed
+##https://www.fishbase.se/manual/English/PDF/FB_Book_ATorres_Swimming_Speed_RF_JG.pdf
+##https://www.fishbase.in/manual/fishbasethe_swimming_and_speed_tables.htm
+##multiple records for some species
+```{r speed, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "speed"
+  T<-speed()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  # T = subset(T, Reliable != "questionable")
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+
+```
+
+##stocks
+##https://www.fishbase.in/manual/fishbasethe_stocks_table.htm
+##multiple records for some species, one for each stock
+```{r stocks, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "stocks"
+  T<-stocks()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  # T = subset(T, Reliable != "questionable")
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  
+  #separately add these fields that might show up in other tables:
+  stocks_fields_exclude =c("Ecology" ,   "Abnorm", "Metabolism", "Predators" ,"Spawning",  "Fecundity",   "Speed",       "Diet"  , "Eggs"  , "EggDevel","Food",
+    
+    "Larvae",    "LarvDyn",    "LarvSpeed",  "PopDyn",    "Gillarea",   "Maturity",  "MatSizes",
+    
+    "Processing", "Reproduction" ,"Introductions" ,"Abundance" ,"Vision"  ,  "Genetics"  ,
+    
+    "CountryComp" ,"Allele",    "GeneticStudies" ,"Ration"    ,  "Foods",   "Ecotoxicology", "Brains",
+    
+    "Catches" ,  "FAOAqua")
+  non_biological = c(non_biological, stocks_fields_exclude)
+  
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}  
+
+```
+
+
+##diet
+##https://www.fishbase.in/manual/fishbasethe_diet_table.htm
+##has multiple rows for different stages
+```{r diet_table, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "diet"
+  T<-diet()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  
+  non_biological = c(non_biological, stocks_fields_exclude)
+  
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+}
+```
+
+
+
+##diet_items -- multiple rows per species. seems to be linked with DietCode to diet table
+##https://www.fishbase.se/manual/English/fishbasethe_food_items_table.htm
+```{r diet_items, include = FALSE}
+
+# rm(table_out)
+# table_name = "diet_items"
+# T<-diet_items()
+# 
+# #check out fields
+# T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+#                                        as.factor)
+# T_f <- T %>%  select_if(is.factor)
+# summary(T_f)
+# 
+# load("DF.Rdata")
+# 
+# load("process_table.Rdata")
+# load("sum_or_mean.Rdata")
+# load("keep_real_binary.Rdata")
+# load("non_biological.Rdata")
+# 
+# non_biological = c(non_biological, stocks_fields_exclude)
+# 
+# table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+# dim(table_out)[1]==dim(DF)[1]#check this is true
+# 
+# save(table_out, file =paste0(table_name, ".Rdata"))
+# 
+# str_which(names(table_out),"Species")
+# 
+# load("out.Rdata")
+# 
+# dim(table_out)[1]==dim(out)[1]
+# 
+# sp_ind = which(names(table_out)=="Species")
+# out = cbind(out, table_out[,-sp_ind])
+# length(str_which(names(out),"Species"))
+# 
+# names(out)[str_which(names(out),table_name)]
+# summary(out[,str_which(names(out),table_name)])
+# 
+# save(out, file = "out.Rdata")
+# 
+# save(out, file = paste0("out", "_", table_name, ".Rdata"))
+
+```
+
+
+
+##swimming
+##https://www.fishbase.in/manual/fishbasethe_swimming_and_speed_tables.htm
+##one record per species
+```{r swimming, include = FALSE}
+if (make_v == 1){
+  rm(table_out)
+  table_name = "swimming"
+  T<-swimming()
+  
+  #check out fields
+  T[sapply(T, is.character)] <- lapply(T[sapply(T, is.character)], 
+                                         as.factor)
+  T_f <- T %>%  select_if(is.factor)
+  summary(T_f)
+  
+  # T = subset(T, Reliable != "questionable")
+  
+  load("DF.Rdata")
+  
+  load("process_table.Rdata")
+  load("sum_or_mean.Rdata")
+  load("keep_real_binary.Rdata")
+  load("non_biological.Rdata")
+  non_biological = setdiff(non_biological, "Type")#put this one back in
+  threshold_frac = 0
+  table_out = process_table(T = T, DF = DF,exclude = non_biological, threshold_frac= 0,table_name = table_name, part = "part")
+  dim(table_out)[1]==dim(DF)[1]#check this is true
+  
+  save(table_out, file =paste0(table_name, ".Rdata"))
+  
+  str_which(names(table_out),"Species")
+  
+  load("out.Rdata")
+  
+  dim(table_out)[1]==dim(out)[1]
+  
+  sp_ind = which(names(table_out)=="Species")
+  out = cbind(out, table_out[,-sp_ind])
+  length(str_which(names(out),"Species"))
+  
+  names(out)[str_which(names(out),table_name)]
+  summary(out[,str_which(names(out),table_name)])
+  
+  save(out, file = "out.Rdata")
+  
+  save(out, file = paste0("out", "_", table_name, ".Rdata"))
+  
+  
+  fishbase_HADDOCK = out
+  write.csv(fishbase_HADDOCK, file = "fishbase_HADDOCK.csv", row.names = FALSE)
+}
+```
+
+##see what coverage is
+```{r, include = FALSE}
+if (make_v == 1){
+  load("out.Rdata")
+  save(out, file = "out_allfields.Rdata")
+  df = out
+  name_ct = length(names(df))
+  row_ct = dim(df)[1]
+  non_na_frac = rep(NA, name_ct)
+  for (a in 1:name_ct){
+    non_na_frac[a]= length(which(!is.na(df[,a])))/ row_ct  
+  }
+    
+  
+  ok_cols = which(non_na_frac > cutoff)
+  DF_fields = data.frame(field = names(df),
+                         non_na_frac = non_na_frac)
+  i = sort.int(DF_fields$non_na_frac,  index.return = TRUE, decreasing = TRUE)
+  
+  DF_fields = DF_fields[i$ix,]
+  DF_fields
+  
+  plot <- ggplot(data = DF_fields, aes(x = non_na_frac))+
+    geom_histogram()+
+    xlab("coverage within field")
+  plot
+  ggsave(plot, filename = "coverage.jpg")
+  
+  h = hist(DF_fields$non_na_frac, plot = FALSE, breaks = 20)
+}
+```
+
+##remove fields with 0 coverage
+```{r, include = FALSE}
+if (make_v == 1){
+  DF_fields_rm = subset(DF_fields, non_na_frac < cutoff)
+  
+  names_rm = DF_fields_rm$field
+  names_rm#the fields to remove
+  print(DF_fields_rm[str_which(names_rm, "oxygen"),])
+  
+  keep = setdiff(names(out), names_rm)
+  out = out[, keep]
+  dim(out)
+  save(out, file = "out.Rdata")
+}
+```
+
+##add back haddock fields
+```{r, include = FALSE}
+if (make_v == 1){
+  load("out.Rdata")
+  save(out, file = "out_minus_haddock.Rdata")
+  load("DF.Rdata")
+  names_in_common = intersect(names(out), names(DF))
+  names_in_common = setdiff(names_in_common, "Species")
+  inds = which(names(DF) %in% names_in_common)
+  DF = DF[, -inds]
+  out = merge(out, DF, by = "Species")
+  
+  rm = c("haddock_score_sd", "Species_ACE2")
+  keep = setdiff(names(out), rm)
+  out = out[, keep]
+  # dummify the data
+  Species = out$Species
+  # sp_ind = which(names(out)=="Species")
+  # dmy <- dummyVars(" ~ .", data = out[,-sp_ind])
+  # out <- data.frame(predict(dmy, newdata = out))
+  # out$Species = Species
+  
+  
+  save(out, file = "out.Rdata")
+}
+```
+
+
+##remove fields with near-zero variation
+```{r, include = FALSE}
+if (make_v == 1){
+  load("out.Rdata")
+  DF = out
+  
+  ##remove variables with zero variation
+  sp_ind = which(names(DF)=="Species")
+  nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
+  okay_inds = which(nzv$nzv == FALSE)
+  # length(okay_inds)
+  # okay_inds =c(okay_inds, sp_ind)
+  length(okay_inds)
+  DF = DF[,okay_inds]#include only the columns that have variation
+  
+  fishbase_HADDOCK_biological = DF
+  save(fishbase_HADDOCK_biological, file = "fishbase_HADDOCK_biological.Rdata")
+  write.csv(fishbase_HADDOCK_biological, file = "fishbase_HADDOCK_biological.csv", row.names = FALSE)
+}
+```
+
+##look for fields in common with other taxa that are not fish and output to add to datasets from other verts
+```{r, include = FALSE}
+if (make_v == 1){
+  source("compare_fields.R")
+}
+```
+
+##add field with AA position 30
+```{r, include = FALSE}
+if (make_v == 1){
+  A <- read.csv("promal3d_30_83.csv")
+  
+  AA_30_negative = rep(0, dim(A)[1])
+  i_blank = str_which(A$X, "-")
+  AA_30_negative[i_blank]=NA
+  
+  i_neg = which(A$X %in% c("d", "e"))#D and E are negative, everything else is neutral or positive 
+  AA_30_negative[i_neg] = 1
+  A$AA_30_negative = AA_30_negative
+  
+  AA_83_Y = rep(0, dim(A)[1])
+  i_blank = str_which(A$X.1, "-")
+  AA_83_Y[i_blank]=NA
+  
+  i_y = which(A$X.1 =="y")# 
+  AA_83_Y[i_y] = 1
+  A$AA_83_Y = AA_83_Y
+  
+  ACE2 = read.csv("ACE2_sequences_fixed.csv")
+  #which(ACE2$Species =="Astatotilapia burtoni")
+  
+  intersect(A$Parsed.325.sequences,ACE2$AccessionNumProtein)
+  
+  names(A)[names(A) == "Parsed.325.sequences"]= "AccessionNumProtein"
+  A = merge(A, ACE2)
+  
+  names(A)[names(A)=="X"]="AA30"
+  
+  names(A)[names(A)=="X.1"]="AA83"
+  
+  i_blank = str_which(A$AA83, "-")
+  A$AA83[i_blank]=NA
+  
+  DF = read.csv("docking-results.csv")
+  
+  DF$species = str_replace(DF$species, pattern = "_", replacement = " ")
+  
+  DF$species=capitalize(DF$species)
+  
+  names(DF)[names(DF)=="species"]="Species"
+  A = merge(A, DF)
+  #rename field to merge
+  
+  write.csv(A, file = "docking_results_AA_30_83.csv", row.names = FALSE)
+}
+# glm(haddock_score_mean ~ AA_30_negative, family=binomial, data=A)
+```
+
+##add AA value to rest of fishbase data
+```{r, include = FALSE}
+if (make_v == 1){
+  A <- read.csv("docking_results_AA_30_83.csv")
+  
+  keep = c("Species", "AA_30_negative", "AA_83_Y", "Order", "Class")
+  
+  A = A[,keep]
+  Species = A$Species
+  sp_ind = which(names(A)=="Species")
+  dmy <- dummyVars(" ~ .", data = A[,-sp_ind])
+  A <- data.frame(predict(dmy, newdata = A))
+  A$Species = Species
+  
+  load("fishbase_HADDOCK_biological.Rdata")
+  
+  DF = fishbase_HADDOCK_biological
+  dim(DF)
+  dim(A)
+  DF_m = merge(DF, A, by = "Species")
+  dim(DF_m)#lose two species
+  setdiff(DF$Species, DF_m$Species)
+  
+  DF = DF_m
+  
+  write.csv(names(DF), file = "names_fishbase.csv", row.names = FALSE)
+  
+  rm = NULL
+  rm = c(rm, str_which(names(DF), "record_count"))
+  rm = c(rm, "LengthMin_length_weight" ,"LengthMax_length_weight", "Weight_oxygen")
+  keep = setdiff(names(DF), rm)
+  DF = DF[,keep]
+  
+  save(DF, file = "DF_fish.Rdata")
+}
+```
+
+
+##remove fields with near-zero variation again
+```{r, include = FALSE}
+if (make_v == 1){
+  load("DF_fish.Rdata")
+  names(DF)[str_which(names(DF), "83")]
+  ##remove variables with zero variation
+  sp_ind = which(names(DF)=="Species")
+  nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
+  okay_inds = which(nzv$nzv == FALSE)
+  length(okay_inds)
+  DF = DF[,okay_inds]#include only the columns that have variation
+  
+  save(DF, file = "DF_fish.Rdata")
+}
+```
+
+
+##combine data Adrian made with rest of fields from fish. remove Order field
+```{r, include = FALSE}
+if (make_v == 1){
+  v_file_name = "haddock_vert_for_gbm 2.csv"#version Adrian made on 8/13, originally titled haddock_vert_for_gbm.csv 
+  V <- read.csv(v_file_name)
+  ind = which(names(V)=="Order")
+  if (length(ind)==1){
+    V = V[,-ind]
+  }
+  str_which(names(V), "brain")#nope
+  str_which(names(V), "habitat")#nope
+  str_which(names(V), "diet")#nope
+  str_which(names(V), "length")#nope
+  
+  load("DF_fish.Rdata")
+  F = DF
+  
+  summary(V$log_adult_body_mass_g)
+  summary(V$adult_svl_cm)
+  names(F)[str_which(names(F), "length")]
+  #need to add these for fish
+  ufish = unique(F$Species)
+  for (a in 1:length(ufish)){
+    v_ind = which(V$Species == ufish[a])#find index of fish in verts
+    F_tmp = subset(F, Species == ufish[a])#find temp records for this fish
+    V$log_adult_body_mass_g[v_ind] = log(F_tmp$BodyWeight_brains)
+    V$adult_svl_cm[v_ind] = F_tmp$LengthAve_length_weight
+  }
+  summary(V$log_adult_body_mass_g)
+  summary(V$adult_svl_cm)
+  save(V, file = "V.Rdata")
+  dim(V)
+  write.csv(V, file = paste0("fish", v_file_name))
+}
+```
+
+#add fields and remove "major_habitat_type_breadth" (because it seems redundant to tnc ecoregion breadth)
+```{r mass_specific_production, include = FALSE}
+if (make_v == 1){
+  load("V.Rdata")
+  V<- V %>%
+    mutate(mass_specific_production = (exp(log_birthhatching_weight_g)/exp(log_adult_body_mass_g))*exp(log_litterclutch_size_n)*litters_or_clutches_per_y) 
+  
+  rm = c("log_no_sex_body_mass", "major_habitat_type_breadth", "range_size", "AA_83_Y", "AA_30_negative", "log_WOS_hits_synonyms")
+  keep = setdiff(names(V), rm)
+  V = V[,keep]
+  save(V, file = "V.Rdata")
+}
+
+```
+
+##add AA value to rest of vert data
+```{r, include = FALSE}
+if (make_v == 1){
+  A <- read.csv("docking_results_AA_30_83.csv")
+  
+  keep = c("Species", "AA_83_Y", "AA_30_negative")
+  
+  A = A[,keep]
+  
+  load("V.Rdata")
+  DF = V
+  dim(DF)
+  dim(A)
+  DF_m = merge(DF, A, by = "Species")
+  dim(DF_m)#lose two species
+  print("these species we have trait data on for vertebrates but not for AA")
+  
+  setdiff(DF$Species, DF_m$Species)
+  
+  DF = DF_m
+  
+  
+  rm = NULL
+  rm = c(rm, str_which(names(DF), "record_count"))
+  rm = c(rm, "LengthMin_length_weight" ,"LengthMax_length_weight", "Weight_oxygen")
+  keep = setdiff(names(DF), rm)
+  DF = DF[,keep]
+  V = DF
+  dim(V)
+  save(V, file = "V.Rdata")
+}
+```
+
+##add WOS hits from R package wosr
+```{r wosr_add}
+if (make_v == 1){
+  load("V.Rdata")
+  dim(V)
+  
+  W <- read.csv("wos_species_hits.csv")#this version has results only from exact matches
+  names(W)[names(W)=="query"]="Species"
+  names(W)[names(W)=="rec_cnt"]="WOS_hits"
+  
+  W$Species = str_replace(W$Species, "TS", "")
+  W$Species = str_replace(W$Species, " = ", "")
+  W$Species = str_sub(W$Species, 2, -2)
+  
+  W2 <- read.csv("query_hits_synonyms.csv")#this includes synonyms
+  names(W2)[names(W2)=="query"]="Species"
+  #add small value to rec_cnt so we can take log
+  W2$rec_cnt = W2$rec_cnt+0.0001
+  W2$rec_cnt = log(W2$rec_cnt)
+  names(W2)[names(W2)=="rec_cnt"]="log_WOS_hits_synonyms"
+  
+  a = 18
+  # hits_synonyms = rep(NA, dim(W2)[1])
+  out = NULL
+  species = unique(W$Species)
+  for (a in 1:length(species)){
+    ind_W2 = str_which(W2$Species, species[a])#find the index in W2 that includes the a'th species
+    tmp = data.frame(log_WOS_hits_synonyms = sum(W2$log_WOS_hits_synonyms[ind_W2]),
+                     Species = species[a]) 
+    # print("a")
+    # print(a)
+    # print(dim(tmp)[1])
+    out = rbind(out, tmp)
+  }
+  V = merge(V, out)
+  dim(V)
+  save(V, file = "V.Rdata")
+}
+```
+
+##output: "haddock_vert_for_gbm.csv"
+```{r make data for gbm median}
+print(Sys.time())
+load("gridSearch.Rdata")
+# save(output_name, file = "output_name.Rdata")
+load("V.Rdata")
+
+# tmp = subset(V, Class == "Actinopterygii")
+
+
+out = V
+Species = out$Species
+sp_ind = which(names(out)=="Species")
+dmy <- dummyVars(" ~ .", data = out[,-sp_ind])
+out <- data.frame(predict(dmy, newdata = out))
+out$Species = Species
+V = out
+
+names = names(V)
+DF = V
+Species = DF$Species
+##remove variables with near zero variation
+sp_ind = which(names(DF)=="Species")
+nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
+okay_inds = which(nzv$nzv == FALSE)
+
+near_zero_inds =which(nzv$nzv == TRUE)
+print("near zero variation fields")
+names[near_zero_inds]
+
+length(okay_inds)
+DF = DF[,okay_inds]#include only the columns that have variation
+DF$Species = Species
+
+load("binary_factor.Rdata")
+DF = binary_factor(DF)
+V = DF
+
+V$adult_svl_cm[is.nan(V$adult_svl_cm)] <- NA
+V$log_adult_body_mass_g[is.nan(V$log_adult_body_mass_g)] <- NA
+
+DF = V
+#find out what haddock_score_median is across all species
+haddock_median = median(V$haddock_score_mean)
+
+haddock_median_and_below = rep(0, dim(DF)[1])
+inds = which(DF$haddock_score_mean <= haddock_median)
+haddock_median_and_below[inds]= 1
+DF$haddock_median_and_below = haddock_median_and_below
+DF_gbm = DF
+save(DF_gbm, file = "DF_gbm.Rdata")
+
+rm =  c("haddock_score_mean",   "haddock_score_sd")
+keep = setdiff(names(DF),rm)
+DF = DF[,keep]
+write.csv(DF, file = "haddock_vert_for_gbm.csv", row.names = FALSE)
+```
+
+#find out if score is above or below species that's been infected that has highest haddock score
+```{r infected make data}
+load("binary_factor.Rdata")
+load("DF_gbm.Rdata")
+DF = DF_gbm
+#read in file where we have added real-world outcomes to supplementary data from Damas et al. 2020
+
+R <- read.csv("Damas_validation_ACE2_species - Data.csv")
+
+R = subset(R, !is.na(transmission.to.conspecifics) )
+R = R[,c("transmission.to.conspecifics", "Species")]
+R$Species[R$Species == "Peromyscus maniculatus bairdii" ]= "Peromyscus maniculatus"
+haddock = rep(NA, dim(R)[1])
+species = unique(R$Species)
+for (a in 1:length(species)){
+  tmp = subset(DF, as.character(Species) == as.character(species[a]))
+  haddock[a]= tmp$haddock_score_mean
+}  
+R$haddock = haddock
+R_highest = subset(R, haddock == max(R$haddock))
+print("infected species w/ conspecific transmission and highest haddock score")
+R_highest
+haddock_cutoff = R_highest$haddock
+
+haddock_infected_and_below = rep(0, dim(DF)[1])#default is that you have a haddock score that is above species infectable and w/ highest score
+
+inds_equal_and_lower = which(DF$haddock_score_mean <= haddock_cutoff)
+haddock_infected_and_below[inds_equal_and_lower] = 1
+DF$haddock_infected_and_below = haddock_infected_and_below
+
+rm = which(names(DF) %in% c( "Order",  "nchar", "haddock_score_sd"))
+
+if (length(rm)>0){
+  DF = DF[,-rm]
+}
+DF_gbm = DF
+save(DF_gbm, file = "DF_gbm.Rdata")
+
+keep = setdiff(names(DF), "haddock_median_and_below")
+keep = setdiff(keep, "haddock_score_mean")
+
+DF = DF[,keep]#remove just for making this dataset for infected
+
+write.csv(DF, file = "haddock_vert_infected_for_gbm.csv", row.names = FALSE)
+```
+
+```{r median_below}
+if (do_haddock_median == 1){
+  load("output_name.Rdata")
+  label = "haddock_median_and_below"
+  output_name = paste(output_name, label)
+}
+```
+
+##gridsearch w/ median
+```{r gridSearch_verts_median}
+if (do_haddock_median == 1){
+
+  load("DF_gbm.Rdata")
+  DF = DF_gbm
+  rm = which(names(DF) %in% c("haddock_score_mean", "Order", "nchar", "haddock_score_sd", "haddock_infected_and_below"))
+  if (length(rm)>0){
+    DF = DF[,-rm]
+  }
+  
+  # n.minobsinnode = c(2)
+  k_split = 0.8
+  distribution = "bernoulli"
+  
+  label_col_ind = which(names(DF)==label)
+  x_col = seq(1:dim(DF)[2])
+  x_col = setdiff(x_col, label_col_ind)
+  vars = colnames(DF)[x_col]
+  vars = setdiff(vars, id_field)#remove species
+  
+  GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
+                           distribution = distribution, 
+                           eta = eta, 
+                           max_depth = max_depth, 
+                           n.minobsinnode = n.minobsinnode,
+                           nrounds = nrounds, 
+                           method = "cv", 
+                           cv.folds = 5)
+  
+  hyper_grid = GRID[[1]]
+  # print(hyper_grid)
+  dev <- GRID[[2]]
+  save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+  save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+  print(Sys.time())
+}
+```
+
+##make deviance plots
+```{r dev_all}
+if (do_haddock_median == 1){
+  source("deviance_plots_all.R")
+}
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r}
+if (do_haddock_median == 1){
+
+  source("deviance_no_min_trees.R")
+  PLTS_no_min
+}
+```
+
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
+```{r dev_best}
+if (do_haddock_median == 1){
+  source("deviance_min_trees.R")
+  PLTS_min
+  print("hyper_grid")
+  hyper_grid
+}
+```
+
+
+#bootstrapGBM -- run with all vertebrates and all fields
+```{r bootstrapGBM_vert_median}
+if (do_haddock_median == 1){
+  distribution = "bernoulli"
+  source("bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf}
+if (do_haddock_median == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance
+```{r importance median}
+if (do_haddock_median == 1){
+  rm = c("eta", "max_depth", "n.trees", "eval_train", "eval_test")
+  keep = setdiff(names(I),rm)
+  I = I[,keep]
+  
+  data_long <- gather(I, key = "var", value = "value", c(2:dim(I)[2]), factor_key=TRUE)
+  
+  data_long_sum <- data_long %>% group_by(var) %>%
+    summarize(mean_importance = mean(value))
+  
+  print(data_long_sum)
+  data_long_sum_nonzero = subset(data_long_sum, mean_importance > 0)
+  
+  #find the variables that have importance at least 1
+  data_long_sum_one = subset(data_long_sum, mean_importance >=1)
+  var_one = data_long_sum_one$var
+  var_one = c(as.character(var_one),"haddock_median_and_below")#add back label
+  var_one = c(var_one, id_field)
+  V = read.csv("haddock_vert_for_gbm.csv")
+  col_keep = which(names(V) %in% var_one)
+  V = V[,col_keep]
+  write.csv(V, "haddock_vert_for_gbm_importance_over_one.csv", row.names = FALSE)
+  
+  data_long_nonzero = subset(data_long, var %in% data_long_sum_nonzero$var)
+  
+  plot <- ggplot(data = data_long_nonzero, aes(x = reorder(var, -value), y = value))+
+    geom_boxplot()+
+    theme(panel.background = element_blank(), panel.border = element_rect(fill = NA, color = "black", size = 1), axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.2), panel.grid.major.y = element_line(color = "grey80"), panel.grid.major.x = element_line(color = "transparent"))+
+    xlab("variable")+
+    ylab("importance")
+  
+  
+  plot
+  ggsave(filename = paste0("importance", output_name, ".jpg"), plot = plot, height = 8, width = 8)
+}
+```
+
+##partial_plotR.R -- define
+```{r partial}
+source("partial_plotR.R")
+```
+
+
+##redo analysis with only features that have importance greater than one
+
+```{r}
+if (do_haddock_median == 1){
+  load("output_name.Rdata")
+  output_name = paste0(output_name, label, "importance_over_one")
+}
+```
+
+#bootstrapGBM -- run with all vertebrates -- importance over one
+```{r bootstrapGBM_vert_median_one}
+if (do_haddock_median == 1){
+  DF = read.csv("haddock_vert_for_gbm_importance_over_one.csv")
+  DF = binary_factor(DF)
+  vars = setdiff(names(DF), label)
+  vars = setdiff(vars, id_field)
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance -- importance over one
+```{r perf_one}
+if (do_haddock_median == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance (over one)
+```{r importance_one}
+if (do_haddock_median == 1){
+  rm = c("eta", "max_depth", "n.trees", "eval_train", "eval_test")
+  keep = setdiff(names(I),rm)
+  I = I[,keep]
+  
+  data_long <- gather(I, key = "var", value = "value", c(2:dim(I)[2]), factor_key=TRUE)
+  
+  data_long_sum <- data_long %>% group_by(var) %>%
+    summarize(mean_importance = mean(value))
+  
+  print(data_long_sum)
+  
+  data_long_sum_nonzero = subset(data_long_sum, mean_importance > 0)
+  
+  #find the variables that have importance at least 1
+  data_long_sum_one = subset(data_long_sum, mean_importance >=1)
+  var_one = data_long_sum_one$var
+  
+  data_long_nonzero = subset(data_long, var %in% data_long_sum_nonzero$var)
+  
+  plot <- ggplot(data = data_long_nonzero, aes(x = reorder(var, -value), y = value))+
+    geom_boxplot()+
+    theme(panel.background = element_blank(), panel.border = element_rect(fill = NA, color = "black", size = 1), axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.2), panel.grid.major.y = element_line(color = "grey80"), panel.grid.major.x = element_line(color = "transparent"))+
+    xlab("variable")+
+    ylab("importance")
+  
+  plot
+  ggsave(filename = paste0("importance", output_name, ".jpg"), plot = plot, height = 8, width = 8)
+}
+```
+
+##redo analysis, this time classifying equal to or below vs. above haddock score of species with highest haddock score that has also been found to have conspecific transmission
+
+```{r}
+if (do_haddock_infected == 1){
+
+  load("output_name.Rdata")
+  label = "haddock_infected_and_below"
+  output_name = paste(output_name, label)
+}
+
+```
+
+##grid search for at/below vs above infected (hamster) 
+```{r infected grid search}
+if (do_haddock_infected == 1){
+  
+  distribution = "bernoulli"
+  DF = read.csv("haddock_vert_infected_for_gbm.csv")
+  DF = binary_factor(DF)
+  label_col_ind = which(names(DF)==label)
+  x_col = seq(1:dim(DF)[2])
+  x_col = setdiff(x_col, label_col_ind)
+  vars = colnames(DF)[x_col]
+  vars = setdiff(vars, id_field)#remove species
+  
+  GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
+                           distribution = distribution, 
+                           eta = eta, 
+                           max_depth = max_depth, 
+                           n.minobsinnode = n.minobsinnode,
+                           nrounds = nrounds, 
+                           method = "cv", 
+                           cv.folds = 5)
+  
+  hyper_grid = GRID[[1]]
+  dev <- GRID[[2]]
+  save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+  save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+  print(Sys.time())
+}
+```
+
+##make deviance plots
+```{r dev_all_inf}
+if (do_haddock_infected == 1){
+  source("deviance_plots_all.R")
+}
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r nolower_inf}
+if (do_haddock_infected == 1){
+  source("deviance_no_min_trees.R")
+  PLTS_no_min
+}
+```
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
+```{r dev_best_10000_inf}
+if (do_haddock_infected == 1){
+  source("deviance_min_trees.R")
+  PLTS_min
+  print("hyper_grid")
+  hyper_grid
+}
+```
+
+#bootstrapGBM -- run with all vertebrates and all fields
+```{r bootstrapGBM_vert_inf}
+if (do_haddock_infected == 1){
+
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_inf}
+if (do_haddock_infected == 1){
+
+  source("performance_metrics.R")
+}
+```
+
+##plot importance w all vars and get vars w importance over one
+```{r importance_inf}
+if (do_haddock_infected == 1){
+
+  file_in = "haddock_vert_infected_for_gbm.csv"
+  file_one = "haddock_vert_infected_for_gbm_importance_over_one.csv"
+  source("plot_importance_one.R")
+}
+```
+
+##make correlation plot for variables w/ importance >1 for above vs. below infected
+```{r}
+if (do_haddock_infected == 1){
+
+  csv_file = "haddock_vert_infected_for_gbm_importance_over_one.csv"
+  
+  pdf(file = paste("corr matrix", csv_file, ".pdf"))
+  IF<- read.csv(csv_file)
+  rm = which(names(IF) == id_field)
+  if (length(rm)>0){
+    IF = IF[,-rm]
+  }
+  
+  # tmp = subset(IF, ClassActinopterygii == 1 )
+  M<-cor(IF, use = "complete")
+  # M<-cor(IF, use = "na.or.complete")
+  plot <- corrplot(M, method="circle", type = "lower")
+  
+  dev.off()
+}
+```
+
+##redo analysis with only features that have importance greater than one -- infected
+```{r}
+if (do_haddock_infected == 1){
+
+  load("output_name.Rdata")
+  output_name = paste0(output_name, label, "import_over_one_")
+}
+```
+
+#bootstrapGBM -- run with all vertebrates -- importance over one -- infected. use same hyper_grid
+```{r bootstrapGBM_vert_one_infected}
+if (do_haddock_infected == 1){
+
+  distribution = "bernoulli"
+  DF = read.csv("haddock_vert_infected_for_gbm_importance_over_one.csv")
+  DF = binary_factor(DF)
+  rm = "haddock_median_and_below" 
+  keep = setdiff(names(DF), rm)
+  DF = DF[,keep]
+  vars = setdiff(names(DF), label)
+  vars = setdiff(vars, id_field)
+  
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_one_inf}
+if (do_haddock_infected == 1){
+
+  source("performance_metrics.R")
+}
+```
+
+##plot importance - infected, vars w importance over one
+```{r importance_inf_one}
+if (do_haddock_infected == 1){
+
+  source("plot_importance.R")
+}
+```
+
+##now do regression analysis
+
+```{r}
+if (do_score == 1){
+  load("output_name.Rdata")
+  label = "haddock_score_mean"
+  output_name = paste(output_name, label)
+  distribution = "gaussian"
+}
+```
+
+```{r haddock_score}
+if (do_score == 1){
+  load("DF_gbm.Rdata")
+  # load("bootstrapGBM.Rdata")
+  load("gridSearch.Rdata")
+  load("binary_factor.Rdata")
+  DF = DF_gbm
+  DF = binary_factor(DF)
+  rm = which(names(DF) %in% c("haddock_median_and_below", "haddock_infected_and_below", "Order",  "nchar", "haddock_score_sd"))
+  
+  if (length(rm)>0){
+    DF = DF[,-rm]
+  }
+  
+  write.csv(DF, file = "haddock_score_vert_for_gbm.csv", row.names = FALSE)
+  
+    
+  label_col_ind = which(names(DF)==label)
+  x_col = seq(1:dim(DF)[2])
+  x_col = setdiff(x_col, label_col_ind)
+  vars = colnames(DF)[x_col]
+  vars = setdiff(vars, id_field)#remove species
+  distribution = "gaussian"
+  
+  GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
+                           distribution = distribution, 
+                           eta = eta, 
+                           max_depth = max_depth, 
+                           n.minobsinnode = n.minobsinnode,
+                           nrounds = nrounds, 
+                           method = "cv", 
+                           cv.folds = 5)
+  
+  hyper_grid = GRID[[1]]
+  dev <- GRID[[2]]
+  save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+  save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+  print(Sys.time())
+  hyper_grid
+}
+```
+
+##make deviance plots
+```{r dev_all_reg}
+if (do_score == 1){
+  source("deviance_plots_all.R")
+}
+
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r dev_no_min_reg}
+if (do_score == 1){
+  source("deviance_no_min_trees.R"  ) 
+  PLTS_no_min
+}
+```
+
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
+```{r dev_best_reg}
+if (do_score == 1){
+  source("deviance_min_trees.R")
+  PLTS_min
+print("hyper_grid")
+hyper_grid
+}
+```
+
+#bootstrapGBM -- run with all vertebrates and all fields -- regression
+```{r bootstrapGBM_vert_reg}
+if (do_score == 1){
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_reg}
+if (do_score == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance and get vars w import over one
+```{r importance_reg}
+if (do_score == 1){
+  file_in = "haddock_score_vert_for_gbm.csv"
+  file_one = "haddock_score_vert_for_gbm_over_one.csv"
+  source("plot_importance_one.R")
+}
+```
+
+```{r}
+if (do_score == 1){
+  load("output_name.Rdata")
+  output_name = paste(output_name, label, "_importance_over_one")
+}
+```
+
+#bootstrapGBM -- run with all vertebrates -- importance over one -- regression use same hyper_grid
+```{r bootstrapGBM_vert_one_reg}
+if (do_score == 1){
+  DF = read.csv("haddock_score_vert_for_gbm_over_one.csv")
+  DF = binary_factor(DF)
+  rm = c("haddock_median_and_below", "haddock_infected_and_below")
+  keep = setdiff(names(DF), rm)
+  DF = DF[,keep]
+  vars = setdiff(names(DF), label)
+  vars = setdiff(vars, id_field)
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_reg_one}
+if (do_score == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance -- regression, import over one
+```{r importance_reg_one}
+if (do_score == 1){
+  source("plot_importance.R")
+}
+```
+
+#AA_30_negative
+```{r AA_30_negative output_name}
+load("output_name.Rdata")
+label = "AA_30_negative"
+output_name = paste0(output_name, label)
+distribution = "bernoulli"
+```
+
+##now make model to predict "AA_30_negative"
+```{r grid AA_30_neg}
+load("DF_gbm.Rdata")
+load("gridSearch.Rdata")
+DF <- DF_gbm
+rm= c(rm_list, "haddock_median_and_below", "haddock_score_mean" ,"haddock_infected_and_below") 
+keep = setdiff(names(DF), rm)
+DF = DF[,keep]
+str_which(names(DF), "haddock")
+DF = binary_factor(DF)
+write.csv(DF, file = paste0(output_name,".csv"), row.names = FALSE)
+vars_gbm = setdiff(names(DF), label)
+vars_gbm = setdiff(vars_gbm, id_field)
+
+GRID <- gridSearch(DF = DF, label = label, vars = vars_gbm, k_split = k_split, 
+                         distribution = distribution, 
+                         eta = eta, 
+                         max_depth = max_depth, 
+                         n.minobsinnode = n.minobsinnode,
+                         nrounds = nrounds, 
+                         method = "cv", 
+                         cv.folds = 5)
+
+hyper_grid = GRID[[1]]
+# print(hyper_grid)
+dev <- GRID[[2]]
+save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+print(Sys.time())
+```
+
+##make deviance plots
+```{r dev_all_30}
+source("deviance_plots_all.R")
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r dev_30_no_limit}
+source("deviance_no_min_trees.R")
+PLTS_no_min
+```
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
+```{r dev_best_30}
+source("deviance_no_min_trees.R")
+PLTS_no_min
+print("hyper_grid")
+hyper_grid
+```
+
+#bootstrapGBM -- run with all vertebrates and all fields -- 
+```{r bootstrapGBM_vert_AA_30}
+vars = vars_gbm
+source("run_bootstrapGBM.R")
+```
+
+##look at performance 
+```{r perf_AA_30}
+source("performance_metrics.R")
+```
+
+##plot importance and output csv w importance over one
+```{r importance_AA_30}
+load("output_name.Rdata")
+label = "AA_30_negative"
+output_name = paste0(output_name, label)
+
+file_in = paste0(output_name,".csv")
+file_one = paste0(output_name, "importance_over_one", ".csv")
+source("plot_importance_one.R")
+```
+
+##redo analysis with only features that have importance greater than one
+
+```{r output_name AA30 one}
+load("output_name.Rdata")
+output_name = paste0(output_name, label, "importance_over_one")
+```
+#bootstrapGBM -- run with all vertebrates -- importance over one
+```{r bootstrapGBM_AA_30_one}
+
+DF = read.csv(paste0(output_name, ".csv"))
+DF = binary_factor(DF)
+vars = setdiff(names(DF), label)
+vars = setdiff(vars, id_field)
+print(Sys.time())
+
+source("run_bootstrapGBM.R")
+```
+
+##look at performance 
+```{r perf_AA_30_one}
+source("performance_metrics.R")
+```
+
+##plot importance
+```{r importance_AA_30_one}
+source("plot_importance.R")
+```
+
+#AA_30_negative -- including haddock score
+```{r output_name AA 30 haddock}
+load("output_name.Rdata")
+label = "AA_30_negative"
+output_name = paste0(output_name, label, "haddock_score_mean")
+distribution = "bernoulli"
+```
+
+##now make model to predict "AA_30_negative" -- including haddock score as predictor
+```{r output_name AA 30 haddock grid}
+load("DF_gbm.Rdata")
+load("gridSearch.Rdata")
+DF <- DF_gbm
+rm= c(rm_list, "haddock_median_and_below","haddock_infected_and_below") #don't take out haddock score mean
+keep = setdiff(names(DF), rm)
+DF = DF[,keep]
+str_which(names(DF), "haddock")#there should still be one
+DF = binary_factor(DF)
+write.csv(DF, file = paste0(output_name,".csv"), row.names = FALSE)
+vars_gbm = setdiff(names(DF), label)
+vars_gbm = setdiff(vars_gbm, id_field)
+
+GRID <- gridSearch(DF = DF, label = label, vars = vars_gbm, k_split = k_split, 
+                         distribution = distribution, 
+                         eta = eta, 
+                         max_depth = max_depth, 
+                         n.minobsinnode = n.minobsinnode,
+                         nrounds = nrounds, 
+                         method = "cv", 
+                         cv.folds = 5)
+
+hyper_grid = GRID[[1]]
+# print(hyper_grid)
+dev <- GRID[[2]]
+save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+print(Sys.time())
+```
+
+##make deviance plots
+```{r dev_all_30_haddock}
+source("deviance_plots_all.R")
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r dev_30_no_limit_haddock}
+source("deviance_no_min_trees.R")
+PLTS_no_min
+
+```
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees, negative at 3
+```{r dev_best_30_haddock}
+
+source("deviance_min_trees.R")
+PLTS_min
+
+```
+
+#bootstrapGBM -- run with all vertebrates and all fields -- negative at 30, including haddock
+```{r bootstrapGBM_vert_AA_30_haddock}
+vars = vars_gbm
+distribution = "bernoulli"
+source("run_bootstrapGBM.R")
+```
+
+##look at performance 
+```{r perf_AA_30_one_haddock}
+source("performance_metrics.R")
+```
+
+##plot importance and output csv w importance over one w/ haddock
+```{r importance_AA_30_one_haddock}
+file_in = paste0(output_name,".csv")
+file_one = paste0(output_name, "importance_over_one", ".csv")
+source("plot_importance_one.R")
+```
+
+##bootstrap w/  AA 30, haddock score, import over one
+```{r boot_AA_30_one_haddock}
+load("output_name.Rdata")
+output_name = paste(output_name, label, "haddock_score_mean", "importance_over_one")
+
+DF = read.csv(file_one)
+DF = binary_factor(DF)
+rm = which(names(DF) %in% c("Order", "nchar", "haddock_score_sd"))#leave in haddock_score_mean
+if (length(rm)>0){
+  DF = DF[,-rm]
+}
+distribution = "bernoulli"
+
+label_col_ind = which(names(DF)==label)
+x_col = seq(1:dim(DF)[2])
+x_col = setdiff(x_col, label_col_ind)
+vars = colnames(DF)[x_col]
+vars = setdiff(vars, id_field)#remove species
+source("run_bootstrapGBM.R")
+```
+
+##look at performance -- AA 30 one haddock
+```{r perf AA 30one haddock}
+source("performance_metrics.R")
+```
+##plot importance -- AA 30 haddock and get variables w importance over one
+```{r importance AA 30one haddock}
+source("plot_importance.R")
+```
+
+##try doing analysis with mammals
+```{r output mammals}
+if (do_mammal == 1){
+load("output_name.Rdata")
+label = "haddock_infected_and_below"
+taxa = "mammals"
+output_name = paste(output_name, label, taxa)
+load("DF_gbm.Rdata")
+DF = DF_gbm
+
+DF= subset(DF, ClassMammalia ==1)
+out_names = names(DF)[str_which(names(DF), "Class")]
+rm = c(rm_list, out_names, "haddock_median_and_below" )#now remove this outcome variable
+keep = setdiff(names(DF), rm)
+DF = DF[,keep]
+
+write.csv(DF, file = "mammals_for_gbm.csv", row.names = FALSE)
+}
+```
+
+##gridsearch w/ infected -- mammals
+```{r gridSearch_mammals-inf}
+if (do_mammal == 1){
+DF = read.csv("mammals_for_gbm.csv")
+DF = binary_factor(DF)
+rm = which(names(DF) %in% c("haddock_score_mean", "Order", "nchar", "haddock_score_sd"))
+if (length(rm)>0){
+  DF = DF[,-rm]
+}
+
+# n.minobsinnode = c(2)
+k_split = 0.8
+distribution = "bernoulli"
+
+label_col_ind = which(names(DF)==label)
+x_col = seq(1:dim(DF)[2])
+x_col = setdiff(x_col, label_col_ind)
+vars = colnames(DF)[x_col]
+vars = setdiff(vars, id_field)#remove species
+
+GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
+                         distribution = distribution, 
+                         eta = eta, 
+                         max_depth = max_depth, 
+                         n.minobsinnode = n.minobsinnode,
+                         nrounds = nrounds, 
+                         method = "cv", 
+                         cv.folds = 5)
+
+hyper_grid = GRID[[1]]
+# print(hyper_grid)
+dev <- GRID[[2]]
+save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+print(Sys.time())
+}
+```
+
+##make deviance plots
+```{r dev_all_mamm}
+if (do_mammal == 1){
+source("deviance_plots_all.R")
+}
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r no min mammals}
+if (do_mammal == 1){
+source("deviance_no_min_trees.R")
+PLTS_no_min
+}
+```
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees --mammals
+```{r dev_best_mamm}
+if (do_mammal == 1){
+source("deviance_min_trees.R")
+PLTS_min
+}
+```
+
+#bootstrapGBM -- run with mammals
+```{r bootstrap mammals}
+if (do_mammal == 1){
+distribution = "bernoulli"
+source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance -- mammals 
+```{r perf mamm}
+if (do_mammal == 1){
+source("performance_metrics.R")
+}  
+```
+
+##plot importance -- mammals and get variables w importance over one
+```{r importance mammals}
+if (do_mammal == 1){
+file_in = "mammals_for_gbm.csv"
+file_one = "mammals_for_gbm_importance_over_one.csv"
+source("plot_importance_one.R")
+}
+```
+
+##bootstrap w/ infected -- mammals -- import over one
+```{r boot_mammals-inf-one}
+if (do_mammal == 1){
+load("output_name.Rdata")
+label = "haddock_infected_and_below"
+taxa = "mammals"
+output_name = paste(output_name, label, taxa, "importance_over_one")
+
+DF = read.csv("mammals_for_gbm_importance_over_one.csv")
+DF = binary_factor(DF)
+rm = which(names(DF) %in% c("haddock_score_mean", "Order", "nchar", "haddock_score_sd"))
+if (length(rm)>0){
+  DF = DF[,-rm]
+}
+distribution = "bernoulli"
+
+label_col_ind = which(names(DF)==label)
+x_col = seq(1:dim(DF)[2])
+x_col = setdiff(x_col, label_col_ind)
+vars = colnames(DF)[x_col]
+vars = setdiff(vars, id_field)#remove species
+source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance -- mammals --one
+```{r perf mamm one}
+if (do_mammal == 1){
+source("performance_metrics.R")
+}
+```
+##plot importance -- mammals and get variables w importance over one
+```{r importance mammals one}
+if (do_mammal == 1){
+source("plot_importance.R")
+}
+```
+
+##find out how long it takes to run
+```{r}
+print(Sys.time())
+
+```
+
+
