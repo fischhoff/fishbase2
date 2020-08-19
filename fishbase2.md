@@ -7,15 +7,15 @@ Han lab
 
 ``` r
 testing_var = 1#0: testing out, not doing full grid search
-nruns = 5
+nruns = 10
 date = "20200818"
-time = "1833"
+time = "2229"
 output_name = paste("vert", date, time, sep = "_")
 save(output_name, file = "output_name.Rdata")
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 18:33:52 EDT"
+    ## [1] "2020-08-18 22:29:52 EDT"
 
 ``` r
 id_field = "Species"
@@ -33,15 +33,15 @@ if (testing_var == 1){
 }
 do_haddock_median = 0
 
-do_haddock_infected = 0#make 1 to do analysis with over/under infectable species w/ highest haddock score
+do_haddock_infected = 1#make 1 to do analysis with over/under infectable species w/ highest haddock score
 
-do_score = 0#1 to do regression analysis with haddock score
+do_score = 1#1 to do regression analysis with haddock score
 
 get_fishbase = 0
 
 make_v = 0 #whether to remake V, which takes a little time to get all the data from fishbase
 
-do_mammal = 0#whether to do separate analysis for mammals (excluding other verts)
+do_mammal = 1#whether to do separate analysis for mammals (excluding other verts)
 ```
 
 \#\#cores
@@ -321,7 +321,7 @@ if (make_v == 1){
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 18:34:05 EDT"
+    ## [1] "2020-08-18 22:30:07 EDT"
 
 ``` r
 load("gridSearch.Rdata")
@@ -701,6 +701,8 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [1] "2020-08-18 22:48:16 EDT"
+
 \#\#make deviance plots
 
 ``` r
@@ -718,6 +720,10 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [[1]]
+
+![](fishbase2_files/figure-gfm/nolower_inf-1.png)<!-- -->
+
 \#\#make deviance plot just for the “best” parameters requiring at least
 10000 trees as optimal number of trees
 
@@ -730,6 +736,14 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [1] "hyper_grid"
+    ## [1] "hyper_grid"
+
+    ##     eta max_depth n.minobsinnode n.trees eval_train eval_test
+    ## 5 1e-04         4              2   64289  0.9874508 0.9228612
+    ##                                       group
+    ## 5 eta:1e-04, max depth:4, min obs in node:2
+
 \#bootstrapGBM – run with all vertebrates and all fields
 
 ``` r
@@ -739,6 +753,9 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [1] "2020-08-18 22:48:46 EDT"
+    ## [1] "2020-08-18 23:10:52 EDT"
+
 \#\#look at performance
 
 ``` r
@@ -747,6 +764,39 @@ if (do_haddock_infected == 1){
   source("performance_metrics.R")
 }
 ```
+
+    ## [1] "observed data, eval train"
+    ## [1] 0.9937008
+    ## [1] "observed data, eval test"
+    ## [1] 0.8760168
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.03999423
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] 0.5638149
+    ## [1] "corrected test eval vert_20200818_2229 haddock_infected_and_below"
+    ## [1] 0.812202
+    ## [1] "true negative"
+    ## [1] 151
+    ## [1] "true positive"
+    ## [1] 109
+    ## [1] "false negative"
+    ## [1] 10
+    ## [1] "false negative species"
+    ##  [1] "Ceratotherium simum"     "Chaetura pelagica"      
+    ##  [3] "Chlamydotis macqueenii"  "Esox lucius"            
+    ##  [5] "Hippocampus comes"       "Merops nubicus"         
+    ##  [7] "Neopelma chrysocephalum" "Nipponia nippon"        
+    ##  [9] "Pipistrellus abramus"    "Xenopus tropicalis"     
+    ## [1] "false_positive"
+    ## [1] 7
+    ## [1] "false positive species"
+    ## [1] "Amphiprion ocellaris"         "Carassius auratus"           
+    ## [3] "Electrophorus electricus"     "Ictalurus punctatus"         
+    ## [5] "Larimichthys crocea"          "Paguma larvata"              
+    ## [7] "Sinocyclocheilus anshuiensis"
+
+    ## Saving 7 x 5 in image
 
 \#\#plot importance w all vars and get vars w importance over one
 
@@ -758,6 +808,21 @@ if (do_haddock_infected == 1){
   source("plot_importance_one.R")
 }
 ```
+
+    ## # A tibble: 37 x 2
+    ##    var                 mean_importance
+    ##    <fct>                         <dbl>
+    ##  1 ClassActinopterygii          2.65  
+    ##  2 ClassAves                    0.279 
+    ##  3 ClassMammalia                0.0401
+    ##  4 ClassReptilia                0.0249
+    ##  5 ForStrat.ground              0.966 
+    ##  6 ForStrat.understory          0.729 
+    ##  7 ForStrat.arboreal            3.22  
+    ##  8 ForStrat.aerial              2.75  
+    ##  9 ForStrat.marine              1.22  
+    ## 10 Activity.Nocturnal           0.277 
+    ## # … with 27 more rows
 
 \#\#make correlation plot for variables w/ importance \>1 for above
 vs. below infected
@@ -782,6 +847,11 @@ if (do_haddock_infected == 1){
   dev.off()
 }
 ```
+
+    ## Warning in cor(IF, use = "complete"): the standard deviation is zero
+
+    ## quartz_off_screen 
+    ##                 2
 
 \#\#redo analysis with only features that have importance greater than
 one – infected
@@ -813,6 +883,9 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [1] "2020-08-18 23:10:54 EDT"
+    ## [1] "2020-08-18 23:25:41 EDT"
+
 \#\#look at performance
 
 ``` r
@@ -822,6 +895,39 @@ if (do_haddock_infected == 1){
 }
 ```
 
+    ## [1] "observed data, eval train"
+    ## [1] 0.9930118
+    ## [1] "observed data, eval test"
+    ## [1] 0.8778401
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.03995732
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] 0.5698457
+    ## [1] "corrected test eval vert_20200818_2229haddock_infected_and_belowimport_over_one_"
+    ## [1] 0.8079944
+    ## [1] "true negative"
+    ## [1] 151
+    ## [1] "true positive"
+    ## [1] 109
+    ## [1] "false negative"
+    ## [1] 10
+    ## [1] "false negative species"
+    ##  [1] "Ceratotherium simum"     "Chaetura pelagica"      
+    ##  [3] "Chlamydotis macqueenii"  "Esox lucius"            
+    ##  [5] "Hippocampus comes"       "Mustela putorius"       
+    ##  [7] "Neopelma chrysocephalum" "Nipponia nippon"        
+    ##  [9] "Pipistrellus abramus"    "Xenopus tropicalis"     
+    ## [1] "false_positive"
+    ## [1] 7
+    ## [1] "false positive species"
+    ## [1] "Amphiprion ocellaris"         "Carassius auratus"           
+    ## [3] "Electrophorus electricus"     "Ictalurus punctatus"         
+    ## [5] "Larimichthys crocea"          "Paguma larvata"              
+    ## [7] "Sinocyclocheilus anshuiensis"
+
+    ## Saving 7 x 5 in image
+
 \#\#plot importance - infected, vars w importance over one
 
 ``` r
@@ -830,6 +936,21 @@ if (do_haddock_infected == 1){
   source("plot_importance.R")
 }
 ```
+
+    ## # A tibble: 25 x 2
+    ##    var                       mean_importance
+    ##    <fct>                               <dbl>
+    ##  1 ClassActinopterygii                  2.83
+    ##  2 ForStrat.arboreal                    3.89
+    ##  3 ForStrat.aerial                      2.94
+    ##  4 ForStrat.marine                      1.47
+    ##  5 female_maturity_d                    1.79
+    ##  6 male_maturity_d                      2.45
+    ##  7 weaning_d                            1.14
+    ##  8 development_d                        4.48
+    ##  9 log_litterclutch_size_n              6.54
+    ## 10 litters_or_clutches_per_y            1.51
+    ## # … with 15 more rows
 
 \#\#now do regression analysis
 
@@ -884,6 +1005,59 @@ if (do_score == 1){
 }
 ```
 
+    ## [1] "2020-08-18 23:40:06 EDT"
+
+    ##      eta max_depth n.minobsinnode n.trees eval_train eval_test
+    ## 1  1e-04         2              2   69408  0.6210104 0.5266804
+    ## 2  1e-04         2              5   52833  0.5807066 0.5153667
+    ## 3  1e-04         3              2   48905  0.6291407 0.5213793
+    ## 4  1e-04         3              5   60483  0.6622681 0.5291226
+    ## 5  1e-04         4              2   38574  0.6255358 0.5133957
+    ## 6  1e-04         4              5   50448  0.6697525 0.5257476
+    ## 7  1e-03         2              2    6750  0.6167301 0.5267036
+    ## 8  1e-03         2              5    6426  0.6085476 0.5212646
+    ## 9  1e-03         3              2    4683  0.6219045 0.5228762
+    ## 10 1e-03         3              5    5090  0.6353209 0.5235166
+    ## 11 1e-03         4              2    5675  0.6900258 0.5287751
+    ## 12 1e-03         4              5    5756  0.6909918 0.5311535
+    ## 13 1e-02         2              2    1057  0.6806448 0.5433700
+    ## 14 1e-02         2              5     455  0.5572571 0.5015936
+    ## 15 1e-02         3              2     773  0.6978104 0.5329998
+    ## 16 1e-02         3              5     491  0.6268556 0.5221500
+    ## 17 1e-02         4              2     476  0.6565509 0.5184193
+    ## 18 1e-02         4              5     355  0.6051325 0.5084454
+    ## 19 1e-01         2              2      58  0.5771288 0.5088985
+    ## 20 1e-01         2              5      99  0.6718390 0.5467305
+    ## 21 1e-01         3              2      52  0.6133918 0.5430688
+    ## 22 1e-01         3              5      41  0.5787429 0.4819854
+    ## 23 1e-01         4              2     110  0.7859531 0.5272194
+    ## 24 1e-01         4              5      43  0.6310450 0.4979511
+    ##                                        group
+    ## 1  eta:1e-04, max depth:2, min obs in node:2
+    ## 2  eta:1e-04, max depth:2, min obs in node:5
+    ## 3  eta:1e-04, max depth:3, min obs in node:2
+    ## 4  eta:1e-04, max depth:3, min obs in node:5
+    ## 5  eta:1e-04, max depth:4, min obs in node:2
+    ## 6  eta:1e-04, max depth:4, min obs in node:5
+    ## 7  eta:0.001, max depth:2, min obs in node:2
+    ## 8  eta:0.001, max depth:2, min obs in node:5
+    ## 9  eta:0.001, max depth:3, min obs in node:2
+    ## 10 eta:0.001, max depth:3, min obs in node:5
+    ## 11 eta:0.001, max depth:4, min obs in node:2
+    ## 12 eta:0.001, max depth:4, min obs in node:5
+    ## 13  eta:0.01, max depth:2, min obs in node:2
+    ## 14  eta:0.01, max depth:2, min obs in node:5
+    ## 15  eta:0.01, max depth:3, min obs in node:2
+    ## 16  eta:0.01, max depth:3, min obs in node:5
+    ## 17  eta:0.01, max depth:4, min obs in node:2
+    ## 18  eta:0.01, max depth:4, min obs in node:5
+    ## 19   eta:0.1, max depth:2, min obs in node:2
+    ## 20   eta:0.1, max depth:2, min obs in node:5
+    ## 21   eta:0.1, max depth:3, min obs in node:2
+    ## 22   eta:0.1, max depth:3, min obs in node:5
+    ## 23   eta:0.1, max depth:4, min obs in node:2
+    ## 24   eta:0.1, max depth:4, min obs in node:5
+
 \#\#make deviance plots
 
 ``` r
@@ -901,6 +1075,10 @@ if (do_score == 1){
 }
 ```
 
+    ## [[1]]
+
+![](fishbase2_files/figure-gfm/dev_no_min_reg-1.png)<!-- -->
+
 \#\#make deviance plot just for the “best” parameters requiring at least
 10000 trees as optimal number of trees
 
@@ -913,6 +1091,14 @@ hyper_grid
 }
 ```
 
+    ## [1] "hyper_grid"
+    ## [1] "hyper_grid"
+
+    ##     eta max_depth n.minobsinnode n.trees eval_train eval_test
+    ## 4 1e-04         3              5   60483  0.6622681 0.5291226
+    ##                                       group
+    ## 4 eta:1e-04, max depth:3, min obs in node:5
+
 \#bootstrapGBM – run with all vertebrates and all fields – regression
 
 ``` r
@@ -921,6 +1107,9 @@ if (do_score == 1){
 }
 ```
 
+    ## [1] "2020-08-18 23:40:27 EDT"
+    ## [1] "2020-08-18 23:55:11 EDT"
+
 \#\#look at performance
 
 ``` r
@@ -928,6 +1117,32 @@ if (do_score == 1){
   source("performance_metrics.R")
 }
 ```
+
+    ## [1] "observed data, eval train"
+    ## [1] 0.6923532
+    ## [1] "observed data, eval test"
+    ## [1] 0.4198591
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.08275417
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] -0.007356416
+    ## [1] "corrected test eval vert_20200818_2229 haddock_score_mean"
+    ## [1] 0.9272155
+    ## [1] "true negative"
+    ## [1] 0
+    ## [1] "true positive"
+    ## [1] 0
+    ## [1] "false negative"
+    ## [1] 0
+    ## [1] "false negative species"
+    ## character(0)
+    ## [1] "false_positive"
+    ## [1] 0
+    ## [1] "false positive species"
+    ## character(0)
+
+    ## Saving 7 x 5 in image
 
 \#\#plot importance and get vars w import over one
 
@@ -938,6 +1153,21 @@ if (do_score == 1){
   source("plot_importance_one.R")
 }
 ```
+
+    ## # A tibble: 37 x 2
+    ##    var                 mean_importance
+    ##    <fct>                         <dbl>
+    ##  1 ClassActinopterygii         6.99   
+    ##  2 ClassAves                   0.389  
+    ##  3 ClassMammalia               0.172  
+    ##  4 ClassReptilia               0.00550
+    ##  5 ForStrat.ground             1.85   
+    ##  6 ForStrat.understory         0.426  
+    ##  7 ForStrat.arboreal           1.97   
+    ##  8 ForStrat.aerial             1.08   
+    ##  9 ForStrat.marine             1.56   
+    ## 10 Activity.Nocturnal          0.244  
+    ## # … with 27 more rows
 
 ``` r
 if (do_score == 1){
@@ -962,6 +1192,9 @@ if (do_score == 1){
 }
 ```
 
+    ## [1] "2020-08-18 23:55:13 EDT"
+    ## [1] "2020-08-19 00:07:19 EDT"
+
 \#\#look at performance
 
 ``` r
@@ -970,6 +1203,32 @@ if (do_score == 1){
 }
 ```
 
+    ## [1] "observed data, eval train"
+    ## [1] 0.6994588
+    ## [1] "observed data, eval test"
+    ## [1] 0.4242069
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.07988844
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] -0.006576666
+    ## [1] "corrected test eval vert_20200818_2229 haddock_score_mean _importance_over_one"
+    ## [1] 0.9307836
+    ## [1] "true negative"
+    ## [1] 0
+    ## [1] "true positive"
+    ## [1] 0
+    ## [1] "false negative"
+    ## [1] 0
+    ## [1] "false negative species"
+    ## character(0)
+    ## [1] "false_positive"
+    ## [1] 0
+    ## [1] "false positive species"
+    ## character(0)
+
+    ## Saving 7 x 5 in image
+
 \#\#plot importance – regression, import over one
 
 ``` r
@@ -977,6 +1236,21 @@ if (do_score == 1){
   source("plot_importance.R")
 }
 ```
+
+    ## # A tibble: 27 x 2
+    ##    var                     mean_importance
+    ##    <fct>                             <dbl>
+    ##  1 ClassActinopterygii                7.09
+    ##  2 ForStrat.ground                    1.95
+    ##  3 ForStrat.arboreal                  2.17
+    ##  4 ForStrat.aerial                    1.12
+    ##  5 ForStrat.marine                    1.60
+    ##  6 Activity.Crepuscular               2.36
+    ##  7 female_maturity_d                  1.39
+    ##  8 male_maturity_d                    1.33
+    ##  9 development_d                      4.14
+    ## 10 log_litterclutch_size_n            7.36
+    ## # … with 17 more rows
 
 \#AA\_30\_negative
 
@@ -1024,7 +1298,7 @@ save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 18:53:20 EDT"
+    ## [1] "2020-08-19 00:21:31 EDT"
 
 \#\#make deviance plots
 
@@ -1066,9 +1340,9 @@ hyper_grid
 ```
 
     ##    eta max_depth n.minobsinnode n.trees eval_train eval_test
-    ## 24 0.1         4              5      36  0.9643926 0.8971429
+    ## 20 0.1         2              5      46  0.9554577      0.91
     ##                                      group
-    ## 24 eta:0.1, max depth:4, min obs in node:5
+    ## 20 eta:0.1, max depth:2, min obs in node:5
 
 \#bootstrapGBM – run with all vertebrates and all fields –
 
@@ -1077,8 +1351,8 @@ vars = vars_gbm
 source("run_bootstrapGBM.R")
 ```
 
-    ## [1] "2020-08-18 18:53:42 EDT"
-    ## [1] "2020-08-18 19:10:05 EDT"
+    ## [1] "2020-08-19 00:22:04 EDT"
+    ## [1] "2020-08-19 00:33:15 EDT"
 
 \#\#look at performance
 
@@ -1087,37 +1361,39 @@ source("performance_metrics.R")
 ```
 
     ## [1] "observed data, eval train"
-    ## [1] 0.9801585
+    ## [1] 0.950647
     ## [1] "observed data, eval test"
-    ## [1] 0.8591429
+    ## [1] 0.8742143
     ## [1] "observed data, sd eval test"
-    ## [1] 0.05862889
+    ## [1] 0.04405013
     ## [1] "null data, eval train"
     ## [1] "null data, eval test"
-    ## [1] 0.5675714
-    ## [1] "corrected test eval vert_20200818_1833AA_30_negative"
-    ## [1] 0.7915714
+    ## [1] 0.5725714
+    ## [1] "corrected test eval vert_20200818_2229AA_30_negative"
+    ## [1] 0.8016429
     ## [1] "true negative"
-    ## [1] 85
+    ## [1] 84
     ## [1] "true positive"
-    ## [1] 168
+    ## [1] 164
     ## [1] "false negative"
-    ## [1] 9
+    ## [1] 13
     ## [1] "false negative species"
-    ## [1] "Betta splendens"        "Clupea harengus"        "Cynoglossus semilaevis"
-    ## [4] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
-    ## [7] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Salarias fasciatus"    
+    ##  [1] "Betta splendens"        "Bos mutus"              "Calidris pugnax"       
+    ##  [4] "Clupea harengus"        "Cynoglossus semilaevis" "Equus przewalskii"     
+    ##  [7] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
+    ## [10] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Poecilia latipinna"    
+    ## [13] "Salarias fasciatus"    
     ## [1] "false_positive"
-    ## [1] 15
+    ## [1] 16
     ## [1] "false positive species"
-    ##  [1] "Anolis carolinensis"         "Chrysochloris asiatica"     
-    ##  [3] "Danio rerio"                 "Delphinapterus leucas"      
-    ##  [5] "Echinops telfairi"           "Eurypyga helias"            
-    ##  [7] "Gallus gallus"               "Mus pahari"                 
-    ##  [9] "Neophocaena asiaeorientalis" "Numida meleagris"           
-    ## [11] "Ornithorhynchus anatinus"    "Pipistrellus abramus"       
-    ## [13] "Rhinolophus pusillus"        "Vicugna pacos"              
-    ## [15] "Zonotrichia albicollis"
+    ##  [1] "Anolis carolinensis"      "Apteryx rowi"            
+    ##  [3] "Charadrius vociferus"     "Chrysochloris asiatica"  
+    ##  [5] "Danio rerio"              "Delphinapterus leucas"   
+    ##  [7] "Echinops telfairi"        "Eurypyga helias"         
+    ##  [9] "Gallus gallus"            "Mus musculus"            
+    ## [11] "Mus pahari"               "Ornithorhynchus anatinus"
+    ## [13] "Pipistrellus abramus"     "Rhinolophus pusillus"    
+    ## [15] "Vicugna pacos"            "Zonotrichia albicollis"
 
     ## Saving 7 x 5 in image
 
@@ -1136,16 +1412,16 @@ source("plot_importance_one.R")
     ## # A tibble: 36 x 2
     ##    var                 mean_importance
     ##    <fct>                         <dbl>
-    ##  1 ClassActinopterygii          0.426 
-    ##  2 ClassAves                    0.903 
-    ##  3 ClassMammalia                0.202 
-    ##  4 ClassReptilia                0.869 
-    ##  5 ForStrat.ground              1.28  
-    ##  6 ForStrat.understory          1.64  
-    ##  7 ForStrat.arboreal            1.01  
-    ##  8 ForStrat.aerial              0.0844
-    ##  9 ForStrat.marine              7.68  
-    ## 10 Activity.Nocturnal           0.387 
+    ##  1 ClassActinopterygii          0.319 
+    ##  2 ClassAves                    0.515 
+    ##  3 ClassMammalia                0.157 
+    ##  4 ClassReptilia                0.470 
+    ##  5 ForStrat.ground              1.04  
+    ##  6 ForStrat.understory          1.16  
+    ##  7 ForStrat.arboreal            0.792 
+    ##  8 ForStrat.aerial              0.0939
+    ##  9 ForStrat.marine              6.95  
+    ## 10 Activity.Nocturnal           0.661 
     ## # … with 26 more rows
 
 \#\#redo analysis with only features that have importance greater than
@@ -1166,14 +1442,14 @@ vars = setdiff(vars, id_field)
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 19:10:08 EDT"
+    ## [1] "2020-08-19 00:33:17 EDT"
 
 ``` r
 source("run_bootstrapGBM.R")
 ```
 
-    ## [1] "2020-08-18 19:10:08 EDT"
-    ## [1] "2020-08-18 19:18:34 EDT"
+    ## [1] "2020-08-19 00:33:17 EDT"
+    ## [1] "2020-08-19 00:40:56 EDT"
 
 \#\#look at performance
 
@@ -1182,36 +1458,39 @@ source("performance_metrics.R")
 ```
 
     ## [1] "observed data, eval train"
-    ## [1] 0.9696215
+    ## [1] 0.9497271
     ## [1] "observed data, eval test"
-    ## [1] 0.8677143
+    ## [1] 0.8612857
     ## [1] "observed data, sd eval test"
-    ## [1] 0.05944128
+    ## [1] 0.06559409
     ## [1] "null data, eval train"
     ## [1] "null data, eval test"
-    ## [1] 0.5932857
-    ## [1] "corrected test eval vert_20200818_1833AA_30_negativeimportance_over_one"
-    ## [1] 0.7744286
+    ## [1] 0.5735714
+    ## [1] "corrected test eval vert_20200818_2229AA_30_negativeimportance_over_one"
+    ## [1] 0.7877143
     ## [1] "true negative"
-    ## [1] 86
+    ## [1] 85
     ## [1] "true positive"
-    ## [1] 168
+    ## [1] 163
     ## [1] "false negative"
-    ## [1] 9
-    ## [1] "false negative species"
-    ## [1] "Betta splendens"        "Calidris pugnax"        "Cynoglossus semilaevis"
-    ## [4] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
-    ## [7] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Salarias fasciatus"    
-    ## [1] "false_positive"
     ## [1] 14
+    ## [1] "false negative species"
+    ##  [1] "Betta splendens"        "Bos mutus"              "Calidris pugnax"       
+    ##  [4] "Clupea harengus"        "Cynoglossus semilaevis" "Equus przewalskii"     
+    ##  [7] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
+    ## [10] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Poecilia latipinna"    
+    ## [13] "Salarias fasciatus"     "Xiphophorus hellerii"  
+    ## [1] "false_positive"
+    ## [1] 15
     ## [1] "false positive species"
     ##  [1] "Anolis carolinensis"      "Charadrius vociferus"    
     ##  [3] "Chrysochloris asiatica"   "Danio rerio"             
     ##  [5] "Delphinapterus leucas"    "Echinops telfairi"       
     ##  [7] "Eurypyga helias"          "Gallus gallus"           
-    ##  [9] "Mus pahari"               "Ornithorhynchus anatinus"
-    ## [11] "Pipistrellus abramus"     "Rhinolophus pusillus"    
-    ## [13] "Vicugna pacos"            "Zonotrichia albicollis"
+    ##  [9] "Mus musculus"             "Mus pahari"              
+    ## [11] "Ornithorhynchus anatinus" "Pipistrellus abramus"    
+    ## [13] "Rhinolophus pusillus"     "Vicugna pacos"           
+    ## [15] "Zonotrichia albicollis"
 
     ## Saving 7 x 5 in image
 
@@ -1221,29 +1500,28 @@ source("performance_metrics.R")
 source("plot_importance.R")
 ```
 
-    ## # A tibble: 20 x 2
+    ## # A tibble: 19 x 2
     ##    var                        mean_importance
     ##    <fct>                                <dbl>
-    ##  1 ForStrat.ground                       1.41
-    ##  2 ForStrat.understory                   1.90
-    ##  3 ForStrat.arboreal                     1.18
-    ##  4 ForStrat.marine                       7.64
-    ##  5 Activity.Crepuscular                  1.78
-    ##  6 Activity.Diurnal                      2.60
-    ##  7 female_maturity_d                     3.46
-    ##  8 male_maturity_d                       1.14
-    ##  9 development_d                         4.63
-    ## 10 log_litterclutch_size_n              12.8 
-    ## 11 log_birthhatching_weight_g            1.78
-    ## 12 log_adult_body_mass_g                 6.28
-    ## 13 longevity_y                           5.84
-    ## 14 adult_svl_cm                          2.51
-    ## 15 diet_breadth                          4.80
-    ## 16 tnc_ecoregion_breadth                 8.99
-    ## 17 mass_specific_production              2.49
-    ## 18 log_range_size                       15.2 
-    ## 19 AA_83_Y                               5.65
-    ## 20 log_WOS_hits_synonyms                 7.91
+    ##  1 ForStrat.ground                       1.30
+    ##  2 ForStrat.understory                   1.52
+    ##  3 ForStrat.marine                       6.99
+    ##  4 Activity.Crepuscular                  1.76
+    ##  5 Activity.Diurnal                      1.64
+    ##  6 female_maturity_d                     3.35
+    ##  7 development_d                         6.01
+    ##  8 log_litterclutch_size_n              12.8 
+    ##  9 litters_or_clutches_per_y             1.66
+    ## 10 log_birthhatching_weight_g            2.00
+    ## 11 log_adult_body_mass_g                 9.63
+    ## 12 longevity_y                           6.81
+    ## 13 adult_svl_cm                          4.02
+    ## 14 diet_breadth                          4.33
+    ## 15 tnc_ecoregion_breadth                 8.72
+    ## 16 mass_specific_production              1.50
+    ## 17 log_range_size                       14.7 
+    ## 18 AA_83_Y                               4.17
+    ## 19 log_WOS_hits_synonyms                 7.10
 
 \#AA\_30\_negative – including haddock score
 
@@ -1292,7 +1570,7 @@ save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 19:35:10 EDT"
+    ## [1] "2020-08-19 00:55:42 EDT"
 
 \#\#make deviance plots
 
@@ -1337,8 +1615,8 @@ distribution = "bernoulli"
 source("run_bootstrapGBM.R")
 ```
 
-    ## [1] "2020-08-18 19:35:46 EDT"
-    ## [1] "2020-08-18 19:47:00 EDT"
+    ## [1] "2020-08-19 00:56:12 EDT"
+    ## [1] "2020-08-19 01:07:25 EDT"
 
 \#\#look at performance
 
@@ -1347,36 +1625,38 @@ source("performance_metrics.R")
 ```
 
     ## [1] "observed data, eval train"
-    ## [1] 0.9855458
+    ## [1] 0.9717254
     ## [1] "observed data, eval test"
-    ## [1] 0.8925714
+    ## [1] 0.8851429
     ## [1] "observed data, sd eval test"
-    ## [1] 0.05020773
+    ## [1] 0.03830419
     ## [1] "null data, eval train"
     ## [1] "null data, eval test"
-    ## [1] 0.6112857
-    ## [1] "corrected test eval vert_20200818_1833AA_30_negativehaddock_score_mean"
-    ## [1] 0.7812857
+    ## [1] 0.5882143
+    ## [1] "corrected test eval vert_20200818_2229AA_30_negativehaddock_score_mean"
+    ## [1] 0.7969286
     ## [1] "true negative"
-    ## [1] 89
+    ## [1] 86
     ## [1] "true positive"
-    ## [1] 165
+    ## [1] 164
     ## [1] "false negative"
-    ## [1] 12
+    ## [1] 13
     ## [1] "false negative species"
-    ##  [1] "Betta splendens"        "Calidris pugnax"        "Camelus ferus"         
-    ##  [4] "Clupea harengus"        "Cynoglossus semilaevis" "Fundulus heteroclitus" 
-    ##  [7] "Gadus morhua"           "Larimichthys crocea"    "Lepisosteus oculatus"  
-    ## [10] "Oncorhynchus mykiss"    "Poecilia latipinna"     "Salarias fasciatus"    
+    ##  [1] "Betta splendens"        "Bos mutus"              "Calidris pugnax"       
+    ##  [4] "Camelus ferus"          "Clupea harengus"        "Cynoglossus semilaevis"
+    ##  [7] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
+    ## [10] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Poecilia latipinna"    
+    ## [13] "Salarias fasciatus"    
     ## [1] "false_positive"
-    ## [1] 11
+    ## [1] 14
     ## [1] "false positive species"
     ##  [1] "Anolis carolinensis"      "Apteryx rowi"            
-    ##  [3] "Chrysochloris asiatica"   "Echinops telfairi"       
-    ##  [5] "Eurypyga helias"          "Mus pahari"              
-    ##  [7] "Ornithorhynchus anatinus" "Pipistrellus abramus"    
-    ##  [9] "Rhinolophus pusillus"     "Vicugna pacos"           
-    ## [11] "Zonotrichia albicollis"
+    ##  [3] "Chrysochloris asiatica"   "Danio rerio"             
+    ##  [5] "Echinops telfairi"        "Eurypyga helias"         
+    ##  [7] "Gallus gallus"            "Lipotes vexillifer"      
+    ##  [9] "Mus pahari"               "Ornithorhynchus anatinus"
+    ## [11] "Pipistrellus abramus"     "Rattus norvegicus"       
+    ## [13] "Rhinolophus pusillus"     "Zonotrichia albicollis"
 
     ## Saving 7 x 5 in image
 
@@ -1391,16 +1671,16 @@ source("plot_importance_one.R")
     ## # A tibble: 37 x 2
     ##    var                 mean_importance
     ##    <fct>                         <dbl>
-    ##  1 ClassActinopterygii           0.249
-    ##  2 ClassAves                     0.971
-    ##  3 ClassMammalia                 0.151
-    ##  4 ClassReptilia                 0.743
-    ##  5 haddock_score_mean           12.5  
-    ##  6 ForStrat.ground               1.05 
-    ##  7 ForStrat.understory           1.03 
-    ##  8 ForStrat.arboreal             0.540
-    ##  9 ForStrat.aerial               0.132
-    ## 10 ForStrat.marine               7.83 
+    ##  1 ClassActinopterygii           0.146
+    ##  2 ClassAves                     0.623
+    ##  3 ClassMammalia                 0.137
+    ##  4 ClassReptilia                 0.395
+    ##  5 haddock_score_mean           10.8  
+    ##  6 ForStrat.ground               0.304
+    ##  7 ForStrat.understory           0.876
+    ##  8 ForStrat.arboreal             0.537
+    ##  9 ForStrat.aerial               0.102
+    ## 10 ForStrat.marine               8.02 
     ## # … with 27 more rows
 
 \#\#bootstrap w/ AA 30, haddock score, import over one
@@ -1425,8 +1705,8 @@ vars = setdiff(vars, id_field)#remove species
 source("run_bootstrapGBM.R")
 ```
 
-    ## [1] "2020-08-18 19:47:02 EDT"
-    ## [1] "2020-08-18 19:54:52 EDT"
+    ## [1] "2020-08-19 01:07:27 EDT"
+    ## [1] "2020-08-19 01:15:25 EDT"
 
 \#\#look at performance – AA 30 one haddock
 
@@ -1435,37 +1715,41 @@ source("performance_metrics.R")
 ```
 
     ## [1] "observed data, eval train"
-    ## [1] 0.9834331
+    ## [1] 0.9707658
     ## [1] "observed data, eval test"
-    ## [1] 0.8962857
+    ## [1] 0.884
     ## [1] "observed data, sd eval test"
-    ## [1] 0.0510362
+    ## [1] 0.04006118
     ## [1] "null data, eval train"
     ## [1] "null data, eval test"
-    ## [1] 0.5727143
-    ## [1] "corrected test eval vert_20200818_1833 AA_30_negative haddock_score_mean importance_over_one"
-    ## [1] 0.8235714
+    ## [1] 0.5745714
+    ## [1] "corrected test eval vert_20200818_2229 AA_30_negative haddock_score_mean importance_over_one"
+    ## [1] 0.8094286
     ## [1] "true negative"
-    ## [1] 88
+    ## [1] 86
     ## [1] "true positive"
-    ## [1] 164
+    ## [1] 162
     ## [1] "false negative"
-    ## [1] 13
+    ## [1] 15
     ## [1] "false negative species"
-    ##  [1] "Betta splendens"        "Calidris pugnax"        "Camelus ferus"         
-    ##  [4] "Clupea harengus"        "Cynoglossus semilaevis" "Equus przewalskii"     
-    ##  [7] "Fundulus heteroclitus"  "Gadus morhua"           "Larimichthys crocea"   
-    ## [10] "Lepisosteus oculatus"   "Oncorhynchus mykiss"    "Poecilia latipinna"    
-    ## [13] "Salarias fasciatus"    
+    ##  [1] "Antrostomus carolinensis" "Betta splendens"         
+    ##  [3] "Bos mutus"                "Calidris pugnax"         
+    ##  [5] "Camelus ferus"            "Clupea harengus"         
+    ##  [7] "Cuculus canorus"          "Cynoglossus semilaevis"  
+    ##  [9] "Fundulus heteroclitus"    "Gadus morhua"            
+    ## [11] "Larimichthys crocea"      "Lepisosteus oculatus"    
+    ## [13] "Oncorhynchus mykiss"      "Poecilia latipinna"      
+    ## [15] "Salarias fasciatus"      
     ## [1] "false_positive"
-    ## [1] 12
+    ## [1] 14
     ## [1] "false positive species"
     ##  [1] "Anolis carolinensis"      "Apteryx rowi"            
-    ##  [3] "Chrysochloris asiatica"   "Delphinapterus leucas"   
-    ##  [5] "Echinops telfairi"        "Eurypyga helias"         
-    ##  [7] "Mus pahari"               "Ornithorhynchus anatinus"
-    ##  [9] "Pipistrellus abramus"     "Rhinolophus pusillus"    
-    ## [11] "Vicugna pacos"            "Zonotrichia albicollis"
+    ##  [3] "Chrysochloris asiatica"   "Danio rerio"             
+    ##  [5] "Echinops telfairi"        "Etheostoma spectabile"   
+    ##  [7] "Eurypyga helias"          "Gallus gallus"           
+    ##  [9] "Lipotes vexillifer"       "Mus pahari"              
+    ## [11] "Ornithorhynchus anatinus" "Pipistrellus abramus"    
+    ## [13] "Rhinolophus pusillus"     "Zonotrichia albicollis"
 
     ## Saving 7 x 5 in image
 
@@ -1477,18 +1761,18 @@ source("plot_importance.R")
 ```
 
     ## # A tibble: 21 x 2
-    ##    var                     mean_importance
-    ##    <fct>                             <dbl>
-    ##  1 haddock_score_mean                12.6 
-    ##  2 ForStrat.ground                    1.32
-    ##  3 ForStrat.understory                1.32
-    ##  4 ForStrat.marine                    8.06
-    ##  5 Activity.Nocturnal                 1.42
-    ##  6 Activity.Crepuscular               1.85
-    ##  7 Activity.Diurnal                   2.35
-    ##  8 female_maturity_d                  4.27
-    ##  9 development_d                      3.23
-    ## 10 log_litterclutch_size_n           14.0 
+    ##    var                       mean_importance
+    ##    <fct>                               <dbl>
+    ##  1 haddock_score_mean                  11.2 
+    ##  2 ForStrat.marine                      8.48
+    ##  3 Activity.Nocturnal                   1.62
+    ##  4 Activity.Crepuscular                 2.23
+    ##  5 Activity.Diurnal                     2.47
+    ##  6 female_maturity_d                    4.00
+    ##  7 male_maturity_d                      1.42
+    ##  8 development_d                        4.59
+    ##  9 log_litterclutch_size_n             16.6 
+    ## 10 litters_or_clutches_per_y            2.33
     ## # … with 11 more rows
 
 \#\#try doing analysis with mammals
@@ -1551,6 +1835,8 @@ print(Sys.time())
 }
 ```
 
+    ## [1] "2020-08-19 01:21:55 EDT"
+
 \#\#make deviance plots
 
 ``` r
@@ -1568,6 +1854,10 @@ PLTS_no_min
 }
 ```
 
+    ## [[1]]
+
+![](fishbase2_files/figure-gfm/no%20min%20mammals-1.png)<!-- -->
+
 \#\#make deviance plot just for the “best” parameters requiring at least
 10000 trees as optimal number of trees –mammals
 
@@ -1578,6 +1868,12 @@ PLTS_min
 }
 ```
 
+    ## [1] "hyper_grid"
+
+    ## [[1]]
+
+![](fishbase2_files/figure-gfm/dev_best_mamm-1.png)<!-- -->
+
 \#bootstrapGBM – run with mammals
 
 ``` r
@@ -1587,6 +1883,9 @@ source("run_bootstrapGBM.R")
 }
 ```
 
+    ## [1] "2020-08-19 01:22:34 EDT"
+    ## [1] "2020-08-19 01:33:06 EDT"
+
 \#\#look at performance – mammals
 
 ``` r
@@ -1594,6 +1893,32 @@ if (do_mammal == 1){
 source("performance_metrics.R")
 }  
 ```
+
+    ## [1] "observed data, eval train"
+    ## [1] 0.9997628
+    ## [1] "observed data, eval test"
+    ## [1] 0.8636364
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.06994949
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] 0.6283217
+    ## [1] "corrected test eval vert_20200818_2229 haddock_infected_and_below mammals"
+    ## [1] 0.7353147
+    ## [1] "true negative"
+    ## [1] 68
+    ## [1] "true positive"
+    ## [1] 56
+    ## [1] "false negative"
+    ## [1] 1
+    ## [1] "false negative species"
+    ## [1] "Ceratotherium simum"
+    ## [1] "false_positive"
+    ## [1] 0
+    ## [1] "false positive species"
+    ## character(0)
+
+    ## Saving 7 x 5 in image
 
 \#\#plot importance – mammals and get variables w importance over one
 
@@ -1604,6 +1929,21 @@ file_one = "mammals_for_gbm_importance_over_one.csv"
 source("plot_importance_one.R")
 }
 ```
+
+    ## # A tibble: 33 x 2
+    ##    var                  mean_importance
+    ##    <fct>                          <dbl>
+    ##  1 ForStrat.ground                0.650
+    ##  2 ForStrat.understory            0.182
+    ##  3 ForStrat.arboreal              3.55 
+    ##  4 ForStrat.aerial                0.164
+    ##  5 ForStrat.marine                0.695
+    ##  6 Activity.Nocturnal             0.446
+    ##  7 Activity.Crepuscular           0.577
+    ##  8 Activity.Diurnal               0.602
+    ##  9 female_maturity_d              3.71 
+    ## 10 male_maturity_d                6.59 
+    ## # … with 23 more rows
 
 \#\#bootstrap w/ infected – mammals – import over one
 
@@ -1631,6 +1971,9 @@ source("run_bootstrapGBM.R")
 }
 ```
 
+    ## [1] "2020-08-19 01:33:08 EDT"
+    ## [1] "2020-08-19 01:41:52 EDT"
+
 \#\#look at performance – mammals –one
 
 ``` r
@@ -1638,6 +1981,32 @@ if (do_mammal == 1){
 source("performance_metrics.R")
 }
 ```
+
+    ## [1] "observed data, eval train"
+    ## [1] 0.9993281
+    ## [1] "observed data, eval test"
+    ## [1] 0.8636364
+    ## [1] "observed data, sd eval test"
+    ## [1] 0.06956002
+    ## [1] "null data, eval train"
+    ## [1] "null data, eval test"
+    ## [1] 0.6311189
+    ## [1] "corrected test eval vert_20200818_2229 haddock_infected_and_below mammals importance_over_one"
+    ## [1] 0.7325175
+    ## [1] "true negative"
+    ## [1] 68
+    ## [1] "true positive"
+    ## [1] 55
+    ## [1] "false negative"
+    ## [1] 2
+    ## [1] "false negative species"
+    ## [1] "Ceratotherium simum"  "Rhinolophus macrotis"
+    ## [1] "false_positive"
+    ## [1] 0
+    ## [1] "false positive species"
+    ## character(0)
+
+    ## Saving 7 x 5 in image
 
 \#\#plot importance – mammals and get variables w importance over one
 
@@ -1647,10 +2016,25 @@ source("plot_importance.R")
 }
 ```
 
+    ## # A tibble: 24 x 2
+    ##    var                              mean_importance
+    ##    <fct>                                      <dbl>
+    ##  1 ForStrat.arboreal                           3.66
+    ##  2 female_maturity_d                           3.81
+    ##  3 male_maturity_d                             6.74
+    ##  4 weaning_d                                   2.91
+    ##  5 development_d                               7.17
+    ##  6 log_litterclutch_size_n                     3.92
+    ##  7 litters_or_clutches_per_y                   2.32
+    ##  8 log_inter_litterbirth_interval_y            4.36
+    ##  9 log_birthhatching_weight_g                  4.88
+    ## 10 log_weaning_weight_g                        4.66
+    ## # … with 14 more rows
+
 \#\#find out how long it takes to run
 
 ``` r
 print(Sys.time())
 ```
 
-    ## [1] "2020-08-18 19:54:53 EDT"
+    ## [1] "2020-08-19 01:41:54 EDT"

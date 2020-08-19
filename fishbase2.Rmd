@@ -21,9 +21,9 @@ for (package in neededPackages){pkgTest(package)}
 
 ```{r}
 testing_var = 1#0: testing out, not doing full grid search
-nruns = 5
+nruns = 10
 date = "20200818"
-time = "1833"
+time = "2229"
 output_name = paste("vert", date, time, sep = "_")
 save(output_name, file = "output_name.Rdata")
 print(Sys.time())
@@ -42,15 +42,15 @@ if (testing_var == 1){
 }
 do_haddock_median = 0
 
-do_haddock_infected = 0#make 1 to do analysis with over/under infectable species w/ highest haddock score
+do_haddock_infected = 1#make 1 to do analysis with over/under infectable species w/ highest haddock score
 
-do_score = 0#1 to do regression analysis with haddock score
+do_score = 1#1 to do regression analysis with haddock score
 
 get_fishbase = 0
 
 make_v = 0 #whether to remake V, which takes a little time to get all the data from fishbase
 
-do_mammal = 0#whether to do separate analysis for mammals (excluding other verts)
+do_mammal = 1#whether to do separate analysis for mammals (excluding other verts)
 ```
 
 ##cores
