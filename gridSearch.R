@@ -40,7 +40,8 @@ gridSearch <- function(DF, label, vars, k_split, distribution = c("bernoulli", "
                         cv.folds = cv.folds,
                         interaction.depth = max_depth[j],
                         bag.fraction = 0.5,
-                        verbose = FALSE)#default
+                        verbose = FALSE,
+                        n.minobsinnode = n.minobsinnode[m])#default
         best.iter <- gbm.perf(case.gbm,method=method,plot.it=FALSE) #this gives you the optimal number of trees 
         ## predictions on the TRAINING SET
         if(distribution == "bernoulli") {

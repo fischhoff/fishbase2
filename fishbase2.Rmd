@@ -1,7 +1,7 @@
 ---
 title: "fishbase2"
 author: "Han lab"
-date: "8/18/2020"
+date: "8/21/2020"
 output: github_document
 ---
 
@@ -20,10 +20,10 @@ for (package in neededPackages){pkgTest(package)}
 ```
 
 ```{r}
-testing_var = 1#0: testing out, not doing full grid search
+testing_var = 1#0: testing out, not doing as full grid search
 nruns = 10
-date = "20200818"
-time = "2229"
+date = "20200821"
+time = "1149"
 output_name = paste("vert", date, time, sep = "_")
 save(output_name, file = "output_name.Rdata")
 print(Sys.time())
@@ -40,17 +40,25 @@ if (testing_var == 1){
   n.minobsinnode = c(2)
   nrounds = 100000
 }
-do_haddock_median = 0
 
 do_haddock_infected = 1#make 1 to do analysis with over/under infectable species w/ highest haddock score
+save(do_haddock_infected, file = "do_haddock_infected.Rdata")
 
 do_score = 1#1 to do regression analysis with haddock score
+save(do_score, file = "do_score.Rdata")
 
-get_fishbase = 0
+do_mammal = 1#whether to do separate analysis for mammals (excluding other verts)
+save(do_mammal, file = "do_mammal.Rdata")
+
+do_haddock_median = 0
+save(do_haddock_median, file = "do_haddock_median.Rdata")
 
 make_v = 0 #whether to remake V, which takes a little time to get all the data from fishbase
 
-do_mammal = 1#whether to do separate analysis for mammals (excluding other verts)
+performance_out = NULL#this will store performance metrics
+DF_merge_out = NULL#this will have the mean predictions
+
+ACE2_file_name = "ACE2_sequences_fixed_20200820.csv"
 ```
 
 ##cores
@@ -155,7 +163,7 @@ if (make_v == 1){
   
   DF$species=capitalize(DF$species)
   
-  A = read.csv("ACE2_sequences_fixed.csv")
+  A = read.csv(ACE2_file_name)
   A_fish = subset(A, is_fish == 1)
   
   names(DF)[names(DF)=="species"]="Species"
@@ -1568,7 +1576,7 @@ if (make_v == 1){
 
 ##add field with AA position 30
 ```{r, include = FALSE}
-if (make_v == 1){
+# if (make_v == 1){
   A <- read.csv("promal3d_30_83.csv")
   
   AA_30_negative = rep(0, dim(A)[1])
@@ -1587,14 +1595,24 @@ if (make_v == 1){
   AA_83_Y[i_y] = 1
   A$AA_83_Y = AA_83_Y
   
-  ACE2 = read.csv("ACE2_sequences_fixed.csv")
+  ACE2 = read.csv(ACE2_file_name)
+  
   #which(ACE2$Species =="Astatotilapia burtoni")
+  dim(A)[1] ==dim(ACE2)[1]#should be true
+  length(intersect(A$Parsed.325.sequences,ACE2$AccessionNumProtein))#one is missing
+  setdiff(A$Parsed.325.sequences,ACE2$AccessionNumProtein)#one is present in A and missing in ACE2 -- "NP_001358344.1" -- this one is Homo sapiens, we don't seem to have Homo sapiens in the ACE2 file
+  HS <- subset(ACE2, Species == "Homo sapiens")
   
-  intersect(A$Parsed.325.sequences,ACE2$AccessionNumProtein)
-  
+  ACE2_has_missing_A <- setdiff(ACE2$AccessionNumProtein, A$Parsed.325.sequences)#one is missing -- "XM_002930611.3"
+  ACE2_has_missing_A = subset(ACE2, AccessionNumProtein %in% ACE2_has_missing_A)
+  ACE2_has_missing_A
+  subset(A, Parsed.325.sequences == "XP_002930657.1")#this is empty. from: https://www.uniprot.org/uniprot/D2I608
+    subset(A, Parsed.325.sequences == "XP_019648990.1")#also empty
+    subset(A, Parsed.325.sequences == "XM_019793431.1")
+    subset(ACE2)
   names(A)[names(A) == "Parsed.325.sequences"]= "AccessionNumProtein"
-  A = merge(A, ACE2)
-  
+  A_merge = merge(A, ACE2, by = "AccessionNumProtein")
+  A = A_merge
   names(A)[names(A)=="X"]="AA30"
   
   names(A)[names(A)=="X.1"]="AA83"
@@ -1613,23 +1631,25 @@ if (make_v == 1){
   #rename field to merge
   
   write.csv(A, file = "docking_results_AA_30_83.csv", row.names = FALSE)
-}
+# }
 # glm(haddock_score_mean ~ AA_30_negative, family=binomial, data=A)
+
+table(A$Class)
 ```
 
 ##add AA value to rest of fishbase data
 ```{r, include = FALSE}
-if (make_v == 1){
+# if (make_v == 1){
   A <- read.csv("docking_results_AA_30_83.csv")
   
   keep = c("Species", "AA_30_negative", "AA_83_Y", "Order", "Class")
   
   A = A[,keep]
-  Species = A$Species
-  sp_ind = which(names(A)=="Species")
-  dmy <- dummyVars(" ~ .", data = A[,-sp_ind])
-  A <- data.frame(predict(dmy, newdata = A))
-  A$Species = Species
+  # Species = A$Species
+  # sp_ind = which(names(A)=="Species")
+  # dmy <- dummyVars(" ~ .", data = A[,-sp_ind])
+  # A <- data.frame(predict(dmy, newdata = A))
+  # A$Species = Species
   
   load("fishbase_HADDOCK_biological.Rdata")
   
@@ -1651,39 +1671,49 @@ if (make_v == 1){
   DF = DF[,keep]
   
   save(DF, file = "DF_fish.Rdata")
-}
+# }
 ```
 
 
 ##remove fields with near-zero variation again
 ```{r, include = FALSE}
-if (make_v == 1){
-  load("DF_fish.Rdata")
-  names(DF)[str_which(names(DF), "83")]
-  ##remove variables with zero variation
-  sp_ind = which(names(DF)=="Species")
-  nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
-  okay_inds = which(nzv$nzv == FALSE)
-  length(okay_inds)
-  DF = DF[,okay_inds]#include only the columns that have variation
-  
-  save(DF, file = "DF_fish.Rdata")
-}
-```
+# if (make_v == 1){
+  # load("DF_fish.Rdata")
+  # names(DF)[str_which(names(DF), "83")]
+  # ##remove variables with zero variation
+  # sp_ind = which(names(DF)=="Species")
+  # nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
+  # okay_inds = which(nzv$nzv == FALSE)
+  # length(okay_inds)
+  # DF = DF[,okay_inds]#include only the columns that have variation
+  # 
+  # save(DF, file = "DF_fish.Rdata")
 
+  # }
+```
 
 ##combine data Adrian made with rest of fields from fish. remove Order field
 ```{r, include = FALSE}
-if (make_v == 1){
-  v_file_name = "haddock_vert_for_gbm 2.csv"#version Adrian made on 8/13, originally titled haddock_vert_for_gbm.csv 
-  V <- read.csv(v_file_name)
-  ind = which(names(V)=="Order")
-  if (length(ind)==1){
+# if (make_v == 1){
+  v_file_name_a = "verttraits_05082020.csv"
+  V <- read.csv(v_file_name_a)
+  
+  V$log_range_size = log(V$range_size)
+    v_file_name = "haddock_vert_for_gbm 2.csv"#version Adrian made on 8/13, originally titled haddock_vert_for_gbm.csv 
+  Vcheck <- read.csv(v_file_name)
+  
+  V1_lost_names = setdiff(names(V), names(Vcheck))
+  
+  V_new_names = setdiff(names(Vcheck), names(V))
+  V_new_names
+  #remove Order field, range_size
+  ind = which(names(V) %in% c("Order", "range_size"))
+  if (length(ind)>=1){
     V = V[,-ind]
   }
   str_which(names(V), "brain")#nope
-  str_which(names(V), "habitat")#nope
-  str_which(names(V), "diet")#nope
+  str_which(names(V), "habitat")#yes
+  str_which(names(V), "diet")#yes
   str_which(names(V), "length")#nope
   
   load("DF_fish.Rdata")
@@ -1705,27 +1735,55 @@ if (make_v == 1){
   save(V, file = "V.Rdata")
   dim(V)
   write.csv(V, file = paste0("fish", v_file_name))
-}
+# }
+table(V$Class)
 ```
 
-#add fields and remove "major_habitat_type_breadth" (because it seems redundant to tnc ecoregion breadth)
+```{r}
+load("V.Rdata")
+alt <- V
+ #this is to create development_d
+nrows = dim(alt)[1]
+development_d = rep(NA, dim(alt)[1])
+for (a in 1:nrows){
+  tmp = sum(alt$gestation_d[a],alt$incubation_d[a], na.rm =TRUE)
+  if (tmp == 0){
+    development_d[a] = NA
+  } else {
+    development_d[a] = tmp
+  }
+  print(development_d[a])
+}
+
+alt$development_d = development_d
+
+alt[which(is.na(alt$longevity_y)) %in% which(!is.na(alt$maximum_longevity_y)), "longevity_y"] <- alt$maximum_longevity_y[which(is.na(alt$longevity_y)) %in% which(!is.na(alt$maximum_longevity_y))] #this is to add max_longevity to places where longevity doesn't exist. I can't test it with the dataset that I have up because all the mammals I'm working with right now either have longevity or don't have both
+rm = c("maximum_longevity_y", "incubation_d", "gestation_d")
+keep = setdiff(names(alt), rm)
+alt = alt[,keep]
+V <- alt
+save(alt, file = "alt.Rdata")
+save(V, file = "V.Rdata")
+```
+
+#add field mass_specific_production and remove "major_habitat_type_breadth" (because it seems redundant to tnc ecoregion breadth)
 ```{r mass_specific_production, include = FALSE}
 if (make_v == 1){
   load("V.Rdata")
   V<- V %>%
     mutate(mass_specific_production = (exp(log_birthhatching_weight_g)/exp(log_adult_body_mass_g))*exp(log_litterclutch_size_n)*litters_or_clutches_per_y) 
   
-  rm = c("log_no_sex_body_mass", "major_habitat_type_breadth", "range_size", "AA_83_Y", "AA_30_negative", "log_WOS_hits_synonyms")
+  rm = c("log_no_sex_body_mass", "major_habitat_type_breadth", "range_size", "log_WOS_hits_synonyms")
   keep = setdiff(names(V), rm)
   V = V[,keep]
   save(V, file = "V.Rdata")
 }
-
+unique(V$Class)
 ```
 
 ##add AA value to rest of vert data
 ```{r, include = FALSE}
-if (make_v == 1){
+# if (make_v == 1){
   A <- read.csv("docking_results_AA_30_83.csv")
   
   keep = c("Species", "AA_83_Y", "AA_30_negative")
@@ -1753,12 +1811,13 @@ if (make_v == 1){
   V = DF
   dim(V)
   save(V, file = "V.Rdata")
-}
+# }
+  table(V$Class)
 ```
 
 ##add WOS hits from R package wosr
 ```{r wosr_add}
-if (make_v == 1){
+# if (make_v == 1){
   load("V.Rdata")
   dim(V)
   
@@ -1793,7 +1852,8 @@ if (make_v == 1){
   V = merge(V, out)
   dim(V)
   save(V, file = "V.Rdata")
-}
+  table(V$Class)
+# }
 ```
 
 ##output: "haddock_vert_for_gbm.csv"
@@ -1802,56 +1862,51 @@ print(Sys.time())
 load("gridSearch.Rdata")
 # save(output_name, file = "output_name.Rdata")
 load("V.Rdata")
+V$adult_svl_cm[is.nan(V$adult_svl_cm)] <- NA
+V$log_adult_body_mass_g[is.nan(V$log_adult_body_mass_g)] <- NA
 
-# tmp = subset(V, Class == "Actinopterygii")
-
-
-out = V
-Species = out$Species
-sp_ind = which(names(out)=="Species")
-dmy <- dummyVars(" ~ .", data = out[,-sp_ind])
-out <- data.frame(predict(dmy, newdata = out))
-out$Species = Species
-V = out
-
-names = names(V)
 DF = V
-Species = DF$Species
-##remove variables with near zero variation
+names_df = names(DF)
+#remove variables with near zero variation
 sp_ind = which(names(DF)=="Species")
 nzv = nearZeroVar(DF, freqCut = 95/5, saveMetrics = TRUE)
 okay_inds = which(nzv$nzv == FALSE)
 
 near_zero_inds =which(nzv$nzv == TRUE)
 print("near zero variation fields")
-names[near_zero_inds]
+print(names_df[near_zero_inds])
 
-length(okay_inds)
-DF = DF[,okay_inds]#include only the columns that have variation
-DF$Species = Species
+DF = DF[,c(okay_inds, near_zero_inds)]#include only the columns that have variation; also include adult_svl_cm because it looks like it does have variation
+
+out = DF#now 1/0 encode, to keep every Class
+Species = out$Species
+sp_ind = which(names(out)=="Species")
+dmy <- dummyVars(" ~ .", data = out[,-sp_ind])
+out <- data.frame(predict(dmy, newdata = out))
+out$Species = Species
+DF = out
 
 load("binary_factor.Rdata")
 DF = binary_factor(DF)
-V = DF
 
-V$adult_svl_cm[is.nan(V$adult_svl_cm)] <- NA
-V$log_adult_body_mass_g[is.nan(V$log_adult_body_mass_g)] <- NA
-
-DF = V
 #find out what haddock_score_median is across all species
-haddock_median = median(V$haddock_score_mean)
+haddock_median = median(DF$haddock_score_mean)
 
 haddock_median_and_below = rep(0, dim(DF)[1])
 inds = which(DF$haddock_score_mean <= haddock_median)
 haddock_median_and_below[inds]= 1
 DF$haddock_median_and_below = haddock_median_and_below
 DF_gbm = DF
+rm = c("haddock_score_sd", "nchar")
+keep = setdiff(names(DF_gbm), rm)
+DF_gbm = DF_gbm[,keep]
 save(DF_gbm, file = "DF_gbm.Rdata")
 
-rm =  c("haddock_score_mean",   "haddock_score_sd")
+rm =  c("haddock_score_mean")
 keep = setdiff(names(DF),rm)
 DF = DF[,keep]
 write.csv(DF, file = "haddock_vert_for_gbm.csv", row.names = FALSE)
+names(DF)
 ```
 
 #find out if score is above or below species that's been infected that has highest haddock score
@@ -2252,144 +2307,6 @@ if (do_haddock_infected == 1){
 }
 ```
 
-##now do regression analysis
-
-```{r}
-if (do_score == 1){
-  load("output_name.Rdata")
-  label = "haddock_score_mean"
-  output_name = paste(output_name, label)
-  distribution = "gaussian"
-}
-```
-
-```{r haddock_score}
-if (do_score == 1){
-  load("DF_gbm.Rdata")
-  # load("bootstrapGBM.Rdata")
-  load("gridSearch.Rdata")
-  load("binary_factor.Rdata")
-  DF = DF_gbm
-  DF = binary_factor(DF)
-  rm = which(names(DF) %in% c("haddock_median_and_below", "haddock_infected_and_below", "Order",  "nchar", "haddock_score_sd"))
-  
-  if (length(rm)>0){
-    DF = DF[,-rm]
-  }
-  
-  write.csv(DF, file = "haddock_score_vert_for_gbm.csv", row.names = FALSE)
-  
-    
-  label_col_ind = which(names(DF)==label)
-  x_col = seq(1:dim(DF)[2])
-  x_col = setdiff(x_col, label_col_ind)
-  vars = colnames(DF)[x_col]
-  vars = setdiff(vars, id_field)#remove species
-  distribution = "gaussian"
-  
-  GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
-                           distribution = distribution, 
-                           eta = eta, 
-                           max_depth = max_depth, 
-                           n.minobsinnode = n.minobsinnode,
-                           nrounds = nrounds, 
-                           method = "cv", 
-                           cv.folds = 5)
-  
-  hyper_grid = GRID[[1]]
-  dev <- GRID[[2]]
-  save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
-  save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
-  print(Sys.time())
-  hyper_grid
-}
-```
-
-##make deviance plots
-```{r dev_all_reg}
-if (do_score == 1){
-  source("deviance_plots_all.R")
-}
-
-```
-
-##find out what happens if we set no lower limit on number of trees
-```{r dev_no_min_reg}
-if (do_score == 1){
-  source("deviance_no_min_trees.R"  ) 
-  PLTS_no_min
-}
-```
-
-
-##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
-```{r dev_best_reg}
-if (do_score == 1){
-  source("deviance_min_trees.R")
-  PLTS_min
-print("hyper_grid")
-hyper_grid
-}
-```
-
-#bootstrapGBM -- run with all vertebrates and all fields -- regression
-```{r bootstrapGBM_vert_reg}
-if (do_score == 1){
-  source("run_bootstrapGBM.R")
-}
-```
-
-##look at performance 
-```{r perf_reg}
-if (do_score == 1){
-  source("performance_metrics.R")
-}
-```
-
-##plot importance and get vars w import over one
-```{r importance_reg}
-if (do_score == 1){
-  file_in = "haddock_score_vert_for_gbm.csv"
-  file_one = "haddock_score_vert_for_gbm_over_one.csv"
-  source("plot_importance_one.R")
-}
-```
-
-```{r}
-if (do_score == 1){
-  load("output_name.Rdata")
-  output_name = paste(output_name, label, "_importance_over_one")
-}
-```
-
-#bootstrapGBM -- run with all vertebrates -- importance over one -- regression use same hyper_grid
-```{r bootstrapGBM_vert_one_reg}
-if (do_score == 1){
-  DF = read.csv("haddock_score_vert_for_gbm_over_one.csv")
-  DF = binary_factor(DF)
-  rm = c("haddock_median_and_below", "haddock_infected_and_below")
-  keep = setdiff(names(DF), rm)
-  DF = DF[,keep]
-  vars = setdiff(names(DF), label)
-  vars = setdiff(vars, id_field)
-  source("run_bootstrapGBM.R")
-}
-```
-
-##look at performance 
-```{r perf_reg_one}
-if (do_score == 1){
-  source("performance_metrics.R")
-}
-```
-
-##plot importance -- regression, import over one
-```{r importance_reg_one}
-if (do_score == 1){
-  source("plot_importance.R")
-}
-```
-
 #AA_30_negative
 ```{r AA_30_negative output_name}
 load("output_name.Rdata")
@@ -2749,10 +2666,155 @@ source("plot_importance.R")
 }
 ```
 
+##now do regression analysis
+
+```{r}
+if (do_score == 1){
+  load("output_name.Rdata")
+  label = "haddock_score_mean"
+  output_name = paste(output_name, label)
+  distribution = "gaussian"
+}
+```
+
+```{r haddock_score}
+if (do_score == 1){
+  load("DF_gbm.Rdata")
+  # load("bootstrapGBM.Rdata")
+  load("gridSearch.Rdata")
+  load("binary_factor.Rdata")
+  DF = DF_gbm
+  DF = binary_factor(DF)
+  rm = which(names(DF) %in% c("haddock_median_and_below", "haddock_infected_and_below", "Order",  "nchar", "haddock_score_sd"))
+  
+  if (length(rm)>0){
+    DF = DF[,-rm]
+  }
+  
+  write.csv(DF, file = "haddock_score_vert_for_gbm.csv", row.names = FALSE)
+  
+    
+  label_col_ind = which(names(DF)==label)
+  x_col = seq(1:dim(DF)[2])
+  x_col = setdiff(x_col, label_col_ind)
+  vars = colnames(DF)[x_col]
+  vars = setdiff(vars, id_field)#remove species
+  distribution = "gaussian"
+  
+  GRID <- gridSearch(DF = DF, label = label, vars = vars, k_split = k_split, 
+                           distribution = distribution, 
+                           eta = eta, 
+                           max_depth = max_depth, 
+                           n.minobsinnode = n.minobsinnode,
+                           nrounds = nrounds, 
+                           method = "cv", 
+                           cv.folds = 5)
+  
+  hyper_grid = GRID[[1]]
+  dev <- GRID[[2]]
+  save(GRID, file = paste0("GRID", ".", output_name, ".Rdata"))
+  save(hyper_grid, file = paste0("hyper_grid", ".", output_name, ".Rdata"))
+  print(Sys.time())
+  hyper_grid
+}
+```
+
+##make deviance plots
+```{r dev_all_reg}
+if (do_score == 1){
+  source("deviance_plots_all.R")
+}
+
+```
+
+##find out what happens if we set no lower limit on number of trees
+```{r dev_no_min_reg}
+if (do_score == 1){
+  source("deviance_no_min_trees.R"  ) 
+  PLTS_no_min
+}
+```
+
+
+##make deviance plot just for the "best" parameters requiring at least 10000 trees as optimal number of trees
+```{r dev_best_reg}
+if (do_score == 1){
+  source("deviance_min_trees.R")
+  PLTS_min
+print("hyper_grid")
+hyper_grid
+}
+```
+
+#bootstrapGBM -- run with all vertebrates and all fields -- regression
+```{r bootstrapGBM_vert_reg}
+if (do_score == 1){
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_reg}
+if (do_score == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance and get vars w import over one
+```{r importance_reg}
+if (do_score == 1){
+  file_in = "haddock_score_vert_for_gbm.csv"
+  file_one = "haddock_score_vert_for_gbm_over_one.csv"
+  source("plot_importance_one.R")
+}
+```
+
+```{r}
+if (do_score == 1){
+  load("output_name.Rdata")
+  output_name = paste(output_name, label, "_importance_over_one")
+}
+```
+
+#bootstrapGBM -- run with all vertebrates -- importance over one -- regression use same hyper_grid
+```{r bootstrapGBM_vert_one_reg}
+if (do_score == 1){
+  DF = read.csv("haddock_score_vert_for_gbm_over_one.csv")
+  DF = binary_factor(DF)
+  rm = c("haddock_median_and_below", "haddock_infected_and_below")
+  keep = setdiff(names(DF), rm)
+  DF = DF[,keep]
+  vars = setdiff(names(DF), label)
+  vars = setdiff(vars, id_field)
+  source("run_bootstrapGBM.R")
+}
+```
+
+##look at performance 
+```{r perf_reg_one}
+if (do_score == 1){
+  source("performance_metrics.R")
+}
+```
+
+##plot importance -- regression, import over one
+```{r importance_reg_one}
+if (do_score == 1){
+  source("plot_importance.R")
+}
+```
+
+##write outputs -- performance_out and DF_merge_out
+```{r}
+load("output_name.Rdata")
+write.csv(performance_out, paste0("performance_models", output_name, ".csv"))
+write.csv(DF_merge_out, paste0("predictions_models", output_name, ".csv"))
+```
+
+
 ##find out how long it takes to run
 ```{r}
 print(Sys.time())
-
 ```
 
 
