@@ -59,8 +59,10 @@ bootstrapGBM <- function(DF, label, vars, k_split, distribution = c("bernoulli",
       TEST <- DF[-DP, ]
       TEST[, label] <- sample(x = TEST[, label], size = nrow(TEST), replace = F)
     }
-      case.gbm <- gbm(data=TRAIN,
-                      model,
+    print("TEST")
+    print(dim(TEST)[1])
+      case.gbm <- gbm(model,
+        data=TRAIN,
                       distribution = distribution,
                       n.trees = nrounds,
                       shrinkage = eta,
@@ -69,11 +71,15 @@ bootstrapGBM <- function(DF, label, vars, k_split, distribution = c("bernoulli",
                       bag.fraction = 0.5,
                       verbose = FALSE,
                       n.minobsinnode=n.minobsinnode)
+      print("gbm done")
       best.iter <- gbm.perf(case.gbm,method=method,plot.it=FALSE)
       case.gbm$var.levels <- lapply(case.gbm$var.levels, function(x) replace(x, is.infinite(x), 0))
       predictions <- predict(case.gbm, newdata = DF, n.trees = best.iter, type = "response")#make predictions for full dataset.
-      predictions[,id_field]= id_field_vals
-      predictions$bootstrap_run = i
+      pred_df = data.frame(predictions = predictions, bootstrap_run = i, 
+                           id_field_vals = id_field_vals,
+                           label = label)
+      # predictions[,id_field]= id_field_vals
+      # predictions$bootstrap_run = i
       # out_predictions <- cbind.data.frame(predictions = predictions, bootstrap_run = i, id_field_vals = id_field_vals)
       if(distribution == "bernoulli") {
         output2<-predict(case.gbm, newdata=TRAIN, n.trees=best.iter, type="response") 
@@ -94,12 +100,14 @@ bootstrapGBM <- function(DF, label, vars, k_split, distribution = c("bernoulli",
         colnames(m)[1:2] <- c("x", "yhat")
         m}))
       out1 <- cbind.data.frame(eta = eta, max_depth = max_depth, n.trees = best.iter, eval_train = mean(eval_train), eval_test = mean(eval_test), bootstrap_run = i, df_importance)
-      OUT <- list(out1, pd_out, out_predictions)
+      # OUT <- list(out1, pd_out, predictions)
+      OUT <- list(out1, pd_out, pred_df)
   }
   out1 <- do.call(rbind, lapply(OUT2, "[[", 1))
   pd_out <- do.call(rbind, lapply(OUT2, "[[", 2))
-  out_predictions <- do.call(rbind, lapply(OUT2, "[[", 3))
-  list(out1, pd_out,out_predictions)
+  pred_df <- do.call(rbind, lapply(OUT2, "[[", 3))
+  # predictions <- do.call(rbind, lapply(OUT2, "[[", 3))
+  list(out1, pd_out,pred_df)
 }
 
 save(bootstrapGBM, file = "bootstrapGBM.Rdata")
