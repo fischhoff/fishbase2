@@ -72,7 +72,9 @@ bootstrapGBM <- function(DF, label, vars, k_split, distribution = c("bernoulli",
       best.iter <- gbm.perf(case.gbm,method=method,plot.it=FALSE)
       case.gbm$var.levels <- lapply(case.gbm$var.levels, function(x) replace(x, is.infinite(x), 0))
       predictions <- predict(case.gbm, newdata = DF, n.trees = best.iter, type = "response")#make predictions for full dataset.
-      out_predictions <- cbind.data.frame(predictions = predictions, bootstrap_run = i, id_field_vals = id_field_vals)
+      predictions[,id_field]= id_field_vals
+      predictions$bootstrap_run = i
+      # out_predictions <- cbind.data.frame(predictions = predictions, bootstrap_run = i, id_field_vals = id_field_vals)
       if(distribution == "bernoulli") {
         output2<-predict(case.gbm, newdata=TRAIN, n.trees=best.iter, type="response") 
         output2<-cbind(output2, as.numeric(TRAIN[, label]))
