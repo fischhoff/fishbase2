@@ -77,7 +77,8 @@ bootstrapGBM <- function(DF, label, vars, k_split, distribution = c("bernoulli",
       predictions <- predict(case.gbm, newdata = DF, n.trees = best.iter, type = "response")#make predictions for full dataset.
       pred_df = data.frame(predictions = predictions, bootstrap_run = i, 
                            id_field_vals = id_field_vals,
-                           label = label)
+                           label = label,
+                           original_value = DF[,label])#add the original value
       # predictions[,id_field]= id_field_vals
       # predictions$bootstrap_run = i
       # out_predictions <- cbind.data.frame(predictions = predictions, bootstrap_run = i, id_field_vals = id_field_vals)
